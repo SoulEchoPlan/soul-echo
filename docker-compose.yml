@@ -1,0 +1,18 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: soul-echo-db
+    restart: always
+    ports:
+      - "${DB_PORT}:3306"
+    environment:
+      # 从 .env 文件中读取值
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+volumes:
+  mysql-data:
