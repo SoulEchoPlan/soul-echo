@@ -1,72 +1,165 @@
 package com.dotlinea.soulecho.controller;
 
+import com.dotlinea.soulecho.service.RealtimeChatService;
+import lombok.AllArgsConstructor;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
-import java.nio.ByteBuffer;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 
 /**
  * WebSocket 处理器
  * <p>
- * 该类继承自 TextWebSocketHandler，用于处理文本和二进制消息。
+ * 负责处理WebSocket连接的生命周期和消息路由，支持文本和二进制消息处理
  * </p>
  *
  * @author fanfan187
  * @version v1.0.0
  * @since v1.0.0
  */
-public class ChatWebSocketHandler extends TextWebSocketHandler {
+@Component
+@AllArgsConstructor
+public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketHandler.class);
+    private final RealtimeChatService chatService;
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        logger.info("WebSocket已建立连接，ID: {}", session.getId());
-        super.afterConnectionEstablished(session);
-    }
+    public void afterConnectionEstablished(WebSocketSession session) {
+        logger.info("WebSocket连接已建立，SessionID: {}, 远程地址: {}",
+            session.getId(), session.getRemoteAddress());
 
-    @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-        logger.info("收到文本消息，SessionID: {}，内容: {}", session.getId(), message.getPayload());
-        // TODO: 处理文本消息
-        super.handleTextMessage(session, message);
+        // 从查询参数中获取角色设定
+        URI uri = session.getUri();
+        if (uri != null && uri.getQuery() != null) {
+            String query = uri.getQuery();
+            String characterId = extractParameter(query, "characterId");
+            String personaPrompt = extractParameter(query, "personaPrompt");
+
+            // 将角色信息存储到会话属性中
+            if (characterId != null) {
+                session.getAttributes().put("characterId", characterId);
+            }
+            if (personaPrompt != null) {
+                session.getAttributes().put("personaPrompt", personaPrompt);
+                logger.debug("会话 {} 设置角色提示词: {}", session.getId(), personaPrompt);
+            }
+        }
+
+        // 设置默认角色提示词（如果未提供）
+        if (!session.getAttributes().containsKey("personaPrompt")) {
+            String defaultPrompt = "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
+            session.getAttributes().put("personaPrompt", defaultPrompt);
+        }
+
+        logger.info("会话 {} 初始化完成", session.getId());
     }
 
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
-        // 获取 BinaryMessage 的 ByteBuffer 载荷
-        ByteBuffer payload = message.getPayload();
+        logger.debug("接收到会话 {} 的二进制消息，大小: {} bytes",
+            session.getId(), message.getPayloadLength());
 
-        // 将 ByteBuffer 转为 byte[]
-        byte[] audioData = new byte[payload.remaining()];
-        payload.get(audioData);
-
-        // 记录收到的二进制数据长度
-        logger.info("收到二进制消息，SessionID: {}，字节长度: {}", session.getId(), audioData.length);
-
-        // TODO: 处理二进制数据，例如转发给 ASR 服务或保存到文件
+        try {
+            // 将音频处理委托给服务层
+            chatService.handleBinaryMessage(session, message);
+        } catch (Exception e) {
+            logger.error("处理会话 {} 的二进制消息时发生异常", session.getId(), e);
+            sendErrorResponse(session, "音频处理失败，请重试");
+        }
     }
 
     @Override
-    public boolean supportsPartialMessages() {
-        // 返回 true 表示支持分片消息
-        return true;
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        String sessionId = session.getId();
+        String textPayload = message.getPayload();
+
+        logger.debug("接收到会话 {} 的文本消息: {}", sessionId, textPayload);
+
+        try {
+            // 处理文本消息
+            String personaPrompt = (String) session.getAttributes().get("personaPrompt");
+            String response = chatService.processTextChat(personaPrompt, textPayload, sessionId);
+
+            if (response != null && !response.trim().isEmpty()) {
+                // 发送文本回复
+                session.sendMessage(new TextMessage(response));
+                logger.debug("向会话 {} 发送文本回复: {}", sessionId, response);
+            } else {
+                sendErrorResponse(session, "无法生成回复，请重试");
+            }
+
+        } catch (Exception e) {
+            logger.error("处理会话 {} 的文本消息时发生异常", sessionId, e);
+            sendErrorResponse(session, "文本处理失败，请重试");
+        }
     }
 
     @Override
-    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
-        logger.error("WebSocket传输错误，SessionID: {}", session.getId(), exception);
-        super.handleTransportError(session, exception);
+    public void handleTransportError(WebSocketSession session, @NotNull Throwable exception) {
+        logger.error("WebSocket传输错误，SessionID: {}, 异常信息: {}",
+            session.getId(), exception.getMessage(), exception);
+
+        // 清理会话资源
+        chatService.cleanupSession(session.getId());
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
-        logger.info("WebSocket连接已关闭，SessionID: {}，状态: {}", session.getId(), status);
-        super.afterConnectionClosed(session, status);
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        logger.info("WebSocket连接已关闭，SessionID: {}, 状态码: {}, 原因: {}",
+            session.getId(), status.getCode(), status.getReason());
+
+        // 清理会话相关资源
+        chatService.cleanupSession(session.getId());
+    }
+
+    /**
+     * 从查询字符串中提取参数
+     * @param query 查询字符串
+     * @param paramName 参数名
+     * @return 参数值，如果不存在返回null
+     */
+    private String extractParameter(String query, String paramName) {
+        if (query == null || query.isEmpty()) {
+            return null;
+        }
+
+        String[] pairs = query.split("&");
+        for (String pair : pairs) {
+            String[] keyValue = pair.split("=", 2);
+            if (keyValue.length == 2 && paramName.equals(keyValue[0])) {
+                try {
+                    return java.net.URLDecoder.decode(keyValue[1], StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    logger.warn("解码参数 {} 失败: {}", paramName, keyValue[1]);
+                    return keyValue[1];
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 发送错误响应
+     * @param session WebSocket会话
+     * @param errorMessage 错误消息
+     */
+    private void sendErrorResponse(WebSocketSession session, String errorMessage) {
+        try {
+            if (session.isOpen()) {
+                TextMessage errorMsg = new TextMessage("{\"error\":\"" + errorMessage + "\"}");
+                session.sendMessage(errorMsg);
+            }
+        } catch (Exception e) {
+            logger.error("发送错误响应失败", e);
+        }
     }
 }

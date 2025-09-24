@@ -1,7 +1,7 @@
 package com.dotlinea.soulecho.config;
 
 import com.dotlinea.soulecho.controller.ChatWebSocketHandler;
-import org.springframework.context.annotation.Bean;
+import lombok.AllArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -19,16 +19,22 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
  */
 @Configuration
 @EnableWebSocket
+@AllArgsConstructor
 public class WebSocketConfig implements WebSocketConfigurer {
 
+    private final ChatWebSocketHandler chatWebSocketHandler;
+
+    /**
+     * 注册WebSocket处理器
+     * <p>
+     * 该方法将ChatWebSocketHandler注册到"/chat"路径，并允许所有来源的跨域请求
+     * </p>
+     *
+     * @param registry WebSocket处理器注册中心
+     */
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(chatWebSocketHandler(), "/chat")
+        registry.addHandler(chatWebSocketHandler, "/chat")
                 .setAllowedOrigins("*");
-    }
-
-    @Bean
-    public ChatWebSocketHandler chatWebSocketHandler() {
-        return new ChatWebSocketHandler();
     }
 }

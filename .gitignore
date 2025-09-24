@@ -1,3 +1,13 @@
+# 忽略整个 .idea 目录
+.idea/
+
+# 忽略所有的 .iml, .ipr, .iws 文件
+*.iml
+*.ipr
+*.iws
+
+/.claude/
+
 # 忽略本地配置文件，防止上传敏感信息
 application-local.properties
 
