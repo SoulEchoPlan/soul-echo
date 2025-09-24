@@ -1,0 +1,8 @@
+# 忽略本地配置文件，防止上传敏感信息
+application-local.properties
+
+# 忽略环境变量文件
+.env
+
+# Maven build output
+/target/
