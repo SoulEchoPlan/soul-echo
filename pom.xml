@@ -84,6 +84,15 @@
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-spring-boot-starter</artifactId>
         </dependency>
+        <!--langchain4j流式输出-->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-reactor</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
         <!--阿里语音识别-->
         <dependency>
             <groupId>com.alibaba.nls</groupId>
@@ -99,6 +108,16 @@
             <groupId>com.alibaba.nls</groupId>
             <artifactId>nls-sdk-tts</artifactId>
             <version>${sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>aliyun-java-sdk-core</artifactId>
+            <version>4.5.10</version>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+            <version>1.2.83</version>
         </dependency>
         <!-- 显式引入 OkHttp，指定兼容版本 -->
         <dependency>

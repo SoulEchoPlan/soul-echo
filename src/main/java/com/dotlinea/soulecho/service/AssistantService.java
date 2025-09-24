@@ -4,5 +4,5 @@ public interface AssistantService {
 
     String SpeechTranscriberWithMicrophone();
 
-    String SpeechRecognition(String string, Long id, Long CharacterId);
+    byte[] SpeechRecognition(String string, Long id, Long CharacterId);
 }

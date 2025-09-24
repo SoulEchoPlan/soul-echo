@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @Data
+
 public class ApiServiceConfig {
 
     @Value("${custom.app-key}")
@@ -13,5 +14,4 @@ public class ApiServiceConfig {
 
     @Value("${custom.token}")
     private String token;
-
 }

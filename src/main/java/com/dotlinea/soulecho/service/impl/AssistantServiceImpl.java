@@ -11,6 +11,11 @@ import com.dotlinea.soulecho.speechTranscriber.Synthesis;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -31,21 +36,30 @@ public class AssistantServiceImpl implements AssistantService {
     }
 
     @Override
-    public String SpeechRecognition(String file, Long id, Long CharacterId) {
+    public byte[] SpeechRecognition(String file, Long id, Long CharacterId) {
         SpeechRecognition demo = new SpeechRecognition(apiServiceConfig.getAppKey(), apiServiceConfig.getToken(),"");
         demo.process(file,16000);
-        log.info("用户说的话"+demo.finalRecognizedText);
+        log.info("用户说的话:"+demo.finalRecognizedText);
         demo.shutdown();
         ChatForm chatForm = new ChatForm();
         chatForm.setMemoryId(id);
         chatForm.setMessage(demo.finalRecognizedText);
         //和大模型对话的结果
-        String chat = separateChatAssistant.chat(chatForm.getMemoryId(), chatForm.getMessage());
-        log.info("大模型回答的话"+chat);
-        //语言合成
+        Flux<String> chat = separateChatAssistant.chat(chatForm.getMemoryId(), chatForm.getMessage());
+//        log.info("大模型回答的话:"+chat.subscribe(word -> System.out.println("-> " + word)));
+        //拼接Flux中的字符串
+        Mono<String> combinedMono = chat
+                .collect(
+                        () -> new StringBuilder(), // 初始化一个 StringBuilder
+                        (sb, str) -> sb.append(str)  // 对每个字符串执行 append 操作
+                )
+                .map(StringBuilder::toString);
+        String text = combinedMono.block();
+        //语音合成
         Synthesis synthesis = new Synthesis(apiServiceConfig.getAppKey(), apiServiceConfig.getToken(),"");
-        synthesis.process(chat);
-        return chat;
+        byte[] data = synthesis.process(text);
+        synthesis.shutdown();
+        return data;
     }
 }
 
