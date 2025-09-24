@@ -1,5 +1,5 @@
 # 忽略整个 .idea 目录
-.idea/
+/.idea/
 
 # 忽略所有的 .iml, .ipr, .iws 文件
 *.iml
