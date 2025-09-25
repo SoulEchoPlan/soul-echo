@@ -154,7 +154,7 @@ public class Synthesis {
         return listener;
     }
 
-    public byte [] process(String text) {
+    public byte [] process(String text,String voice) {
         SpeechSynthesizer synthesizer = null;
         try {
             //创建实例,建立连接
@@ -165,7 +165,7 @@ public class Synthesis {
             //设置返回音频的采样率
             synthesizer.setSampleRate(SampleRateEnum.SAMPLE_RATE_16K);
             //发音人
-            synthesizer.setVoice("siyue");
+            synthesizer.setVoice(voice);
             //语调，范围是-500~500，可选，默认是0
             synthesizer.setPitchRate(100);
             //语速，范围是-500~500，默认是0

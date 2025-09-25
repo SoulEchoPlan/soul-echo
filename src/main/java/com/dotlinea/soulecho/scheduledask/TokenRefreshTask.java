@@ -11,6 +11,8 @@ import com.aliyuncs.http.MethodType;
 import com.aliyuncs.http.ProtocolType;
 import com.aliyuncs.profile.DefaultProfile;
 import com.dotlinea.soulecho.config.AliyunConfig;
+import com.dotlinea.soulecho.entity.Smartvoice;
+import com.dotlinea.soulecho.service.SmartvoiceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -43,6 +45,9 @@ public class TokenRefreshTask {
     @Autowired
     private AliyunConfig aliyunConfig;
 
+    @Autowired
+    private SmartvoiceService smartvoiceService;
+
     @Scheduled(cron = "0 0 0,12 * * ?")
 //    @Scheduled(fixedRate = 60000)
     public void GetToken() throws IOException, ClientException {
@@ -74,18 +79,12 @@ public class TokenRefreshTask {
             // 将10位数的时间戳转换为北京时间
             String expireDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(expireTime * 1000));
             System.out.println("Token有效期的北京时间：" + expireDate);
-//            Properties properties = new Properties();
-//            try (InputStream input = new FileInputStream(CONFIG_PATH)) {
-//                properties.load(input);
-//                // 修改Token值
-//                properties.setProperty(TOKEN_KEY, token);
-//                // 保存修改
-//                try (OutputStream output = new FileOutputStream(CONFIG_PATH)) {
-//                    properties.store(output, "Updated token by system");
-//                }
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//            }
+            Smartvoice byId = smartvoiceService.getById(1);
+            if (byId == null) {
+                throw new RuntimeException();
+            }
+            byId.setToken(token);
+            smartvoiceService.updateById(byId);
         } else {
             System.out.println("获取Token失败！");
         }
