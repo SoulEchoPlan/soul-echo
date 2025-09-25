@@ -6,7 +6,8 @@ services:
     ports:
       - "${DB_PORT}:3306"
     environment:
-      # 从 .env 文件中读取值
+      # 从 .env 文件中读取值  
+      #
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_DATABASE}
       MYSQL_USER: ${DB_USER}
