@@ -13,11 +13,15 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class SeparateChatAssistantConfig {
 
+    @Autowired
+    private MySQLChatMemoryStore mySQLChatMemoryStore;
+
     @Bean
     public ChatMemoryProvider chatMemoryProvider() {
         return memoryId-> MessageWindowChatMemory.builder()
                 .id(memoryId)
                 .maxMessages(10)
+                .chatMemoryStore(mySQLChatMemoryStore)
                 .build();
     }
 }

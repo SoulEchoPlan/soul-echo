@@ -69,8 +69,8 @@
             <option name="tableUIInfoList">
               <list>
                 <TableUIInfo>
-                  <option name="className" value="Smartvoice" />
-                  <option name="tableName" value="SmartVoice" />
+                  <option name="className" value="ChatMemory" />
+                  <option name="tableName" value="chat_memory" />
                 </TableUIInfo>
               </list>
             </option>
