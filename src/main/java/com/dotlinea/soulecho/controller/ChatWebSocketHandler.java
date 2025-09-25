@@ -32,6 +32,11 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketHandler.class);
     private final RealtimeChatService chatService;
 
+    /**
+     * 当WebSocket连接建立时调用
+     *
+     * @param session WebSocket会话
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         logger.info("WebSocket连接已建立，SessionID: {}, 远程地址: {}",
@@ -63,6 +68,12 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         logger.info("会话 {} 初始化完成", session.getId());
     }
 
+    /**
+     * 当接收到二进制消息时调用
+     *
+     * @param session WebSocket会话
+     * @param message 二进制消息
+     */
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
         logger.debug("接收到会话 {} 的二进制消息，大小: {} bytes",
@@ -77,6 +88,12 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         }
     }
 
+    /**
+     * 当接收到文本消息时调用
+     *
+     * @param session WebSocket会话
+     * @param message 文本消息
+     */
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         String sessionId = session.getId();
@@ -103,6 +120,12 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         }
     }
 
+    /**
+     * 当WebSocket传输错误时调用
+     *
+     * @param session WebSocket会话
+     * @param exception 错误信息
+     */
     @Override
     public void handleTransportError(WebSocketSession session, @NotNull Throwable exception) {
         logger.error("WebSocket传输错误，SessionID: {}, 异常信息: {}",
@@ -112,6 +135,12 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         chatService.cleanupSession(session.getId());
     }
 
+    /**
+     * 当WebSocket连接关闭时调用
+     *
+     * @param session WebSocket会话
+     * @param status 关闭状态
+     */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         logger.info("WebSocket连接已关闭，SessionID: {}, 状态码: {}, 原因: {}",

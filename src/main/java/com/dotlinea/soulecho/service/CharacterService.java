@@ -1,6 +1,8 @@
 package com.dotlinea.soulecho.service;
 
 import com.dotlinea.soulecho.dto.CharacterDTO;
+import com.dotlinea.soulecho.dto.ChatRequestDTO;
+import com.dotlinea.soulecho.dto.ChatResponseDTO;
 import com.dotlinea.soulecho.entity.Character;
 
 import java.util.List;
@@ -56,4 +58,19 @@ public interface CharacterService {
      * @return 公开角色DTO列表
      */
     List<CharacterDTO> findAllPublic();
+
+    /**
+     * 更新角色信息
+     * @param id 角色ID
+     * @param characterDTO 角色DTO
+     * @return 更新后的角色DTO
+     */
+    CharacterDTO updateCharacter(Long id, CharacterDTO characterDTO);
+
+    /**
+     * 处理聊天请求
+     * @param request 聊天请求DTO
+     * @return 聊天响应DTO
+     */
+    ChatResponseDTO chat(ChatRequestDTO request);
 }

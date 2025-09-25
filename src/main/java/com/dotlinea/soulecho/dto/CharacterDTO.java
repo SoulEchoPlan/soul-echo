@@ -2,6 +2,8 @@ package com.dotlinea.soulecho.dto;
 
 import lombok.Data;
 
+import jakarta.validation.constraints.NotBlank;
+
 /**
  * 角色数据传输对象
  * <p>
@@ -26,13 +28,9 @@ public class CharacterDTO {
     private String name;
 
     /**
-     * 角色描述
-     */
-    private String description;
-
-    /**
      * 角色人设
      */
+    @NotBlank(message = "角色人设不能为空")
     private String personaPrompt;
 
     /**
