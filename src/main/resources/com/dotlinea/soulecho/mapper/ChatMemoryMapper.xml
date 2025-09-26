@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dotlinea.soulecho.mapper.ChatMemoryMapper">
+    <update id="updateMessagesId">
+        UPDATE chat_memory
+        SET messages_json = #{messagesToJson}
+        WHERE memory_id = #{memoryId}
+    </update>
+
+    <delete id="deleteMessagesId" parameterType="java.lang.Object">
+        DELETE FROM chat_memory
+        WHERE memory_id = #{memoryId}
+    </delete>
+
+    <select id="getMessagesId" resultType="com.dotlinea.soulecho.entity.ChatMemory"
+            parameterType="java.lang.Object">
+        select id, memory_id, messages_json
+        from chat_memory
+        where memory_id=#{memoryId}
+    </select>
+</mapper>

@@ -2,6 +2,7 @@ package com.dotlinea.soulecho;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Soul Echo 应用程序主启动类
@@ -15,6 +16,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * - MySQL数据库存储角色信息
  */
 @SpringBootApplication
+@EnableScheduling//开启定时任务
 public class SoulEchoApplication {
 
     /**
@@ -23,6 +25,5 @@ public class SoulEchoApplication {
      */
     public static void main(String[] args) {
         SpringApplication.run(SoulEchoApplication.class, args);
-        System.out.println("Hello");
     }
 }
