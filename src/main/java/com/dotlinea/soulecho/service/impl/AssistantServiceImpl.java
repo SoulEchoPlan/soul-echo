@@ -94,6 +94,9 @@ public class AssistantServiceImpl implements AssistantService {
 
     @Override
     public TextAndAudioVo AudioStreamingToText(TextAndAudioDTO text) {
+        if (text.getText()==null){
+            throw new RuntimeException("音频流为空");
+        }
         Smartvoice smartvoice = smartvoiceMapper.selectById(1);
         Characters characters = charactersMapper.selectById(text.getCharacterId());
         String message = SpeechToText(text.getText(), smartvoice.getAppkey(), smartvoice.getToken());
@@ -107,6 +110,9 @@ public class AssistantServiceImpl implements AssistantService {
 
     @Override
     public String AudioStreamingToText1(TextAndAudioDTO text) {
+        if (text.getText()==null){
+            throw new RuntimeException("音频流为空");
+        }
         Smartvoice smartvoice = smartvoiceMapper.selectById(1);
         Characters characters = charactersMapper.selectById(text.getCharacterId());
         String message = SpeechToText(text.getText(), smartvoice.getAppkey(), smartvoice.getToken());
@@ -116,6 +122,9 @@ public class AssistantServiceImpl implements AssistantService {
 
     @Override
     public byte[] AudioStreamingToText2(TextAndAudioDTO text) {
+        if (text.getText()==null){
+            throw new RuntimeException("音频流为空");
+        }
         Smartvoice smartvoice = smartvoiceMapper.selectById(1);
         Characters characters = charactersMapper.selectById(text.getCharacterId());
         String message = SpeechToText(text.getText(), smartvoice.getAppkey(), smartvoice.getToken());

@@ -71,7 +71,7 @@ public class AssistantController {
 
     //前端传音频流，返回经过处理返回ai生成的回答和其回答的二进制音频流
     @Operation(summary = "音频流转文字")
-    @GetMapping("/AudioStreamingToText")
+    @PostMapping("/AudioStreamingToText")
     public TextAndAudioVo AudioStreamingToText(TextAndAudioDTO text){
         TextAndAudioVo textAndAudioVo = assistantService.AudioStreamingToText(text);
         return textAndAudioVo;
@@ -79,15 +79,16 @@ public class AssistantController {
 
     //前端传音频流，返回经过处理返回ai生成的回答文本
     @Operation(summary = "音频流转文字返回文本")
-    @GetMapping("/AudioStreamingToText1")
+    @PostMapping("/AudioStreamingToText1")
     public String AudioStreamingToText1(TextAndAudioDTO text){
         String message = assistantService.AudioStreamingToText1(text);
+        //也可以返回Flux流的数据，流式展示文本
         return message;
     }
 
     //前端传音频流，返回经过处理返回ai生成的回答文本合成的音频流
     @Operation(summary = "音频流转文字返回二进制音频流")
-    @GetMapping("/AudioStreamingToText2")
+    @PostMapping("/AudioStreamingToText2")
     public byte[] AudioStreamingToText2(TextAndAudioDTO text){
         byte[] result = assistantService.AudioStreamingToText2(text);
         return result;
