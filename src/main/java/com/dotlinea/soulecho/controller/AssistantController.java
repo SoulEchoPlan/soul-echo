@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.socket.BinaryMessage;
 import reactor.core.publisher.Flux;
@@ -72,7 +73,7 @@ public class AssistantController {
     //前端传音频流，返回经过处理返回ai生成的回答和其回答的二进制音频流
     @Operation(summary = "音频流转文字")
     @PostMapping("/AudioStreamingToText")
-    public TextAndAudioVo AudioStreamingToText(TextAndAudioDTO text){
+    public TextAndAudioVo AudioStreamingToText(@RequestBody TextAndAudioDTO text){
         TextAndAudioVo textAndAudioVo = assistantService.AudioStreamingToText(text);
         return textAndAudioVo;
     }
@@ -80,17 +81,25 @@ public class AssistantController {
     //前端传音频流，返回经过处理返回ai生成的回答文本
     @Operation(summary = "音频流转文字返回文本")
     @PostMapping("/AudioStreamingToText1")
-    public String AudioStreamingToText1(TextAndAudioDTO text){
+    public String AudioStreamingToText1(@RequestBody TextAndAudioDTO text){
         String message = assistantService.AudioStreamingToText1(text);
         //也可以返回Flux流的数据，流式展示文本
         return message;
     }
 
+    //前端传音频流，返回经过处理返回ai生成的回答流式文本
+    @Operation(summary = "音频流转文字返回流式文本")
+    @PostMapping("/AudioStreamingToText2")
+    public Flux<ServerSentEvent<String>> AudioStreamingToText2(@RequestBody TextAndAudioDTO text){
+        Flux<ServerSentEvent<String>> message = assistantService.AudioStreamingToText2(text);
+        return message;
+    }
+
     //前端传音频流，返回经过处理返回ai生成的回答文本合成的音频流
     @Operation(summary = "音频流转文字返回二进制音频流")
-    @PostMapping("/AudioStreamingToText2")
-    public byte[] AudioStreamingToText2(TextAndAudioDTO text){
-        byte[] result = assistantService.AudioStreamingToText2(text);
+    @PostMapping("/AudioStreamingToText3")
+    public byte[] AudioStreamingToText3(@RequestBody TextAndAudioDTO text){
+        byte[] result = assistantService.AudioStreamingToText3(text);
         return result;
     }
 

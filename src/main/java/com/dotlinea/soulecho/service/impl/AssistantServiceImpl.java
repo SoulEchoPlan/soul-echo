@@ -19,6 +19,7 @@ import com.dotlinea.soulecho.speechTranscriber.Synthesis;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -121,7 +122,19 @@ public class AssistantServiceImpl implements AssistantService {
     }
 
     @Override
-    public byte[] AudioStreamingToText2(TextAndAudioDTO text) {
+    public Flux<ServerSentEvent<String>> AudioStreamingToText2(TextAndAudioDTO text) {
+        if (text.getText()==null){
+            throw new RuntimeException("音频流为空");
+        }
+        Smartvoice smartvoice = smartvoiceMapper.selectById(1);
+        Characters characters = charactersMapper.selectById(text.getCharacterId());
+        String message = SpeechToText(text.getText(), smartvoice.getAppkey(), smartvoice.getToken());
+        Flux<ServerSentEvent<String>> serverSentEventFlux = AIConversationasyn(text.getId(), message, characters.getPersonaprompt());
+        return serverSentEventFlux;
+    }
+
+    @Override
+    public byte[] AudioStreamingToText3(TextAndAudioDTO text) {
         if (text.getText()==null){
             throw new RuntimeException("音频流为空");
         }
@@ -141,7 +154,7 @@ public class AssistantServiceImpl implements AssistantService {
         return message;
     }
 
-    //ai对话
+    //ai对话阻塞生成文本
     public String AIConversation(Long memoryId,String message,String personaprompt){
         ChatHistory userchatHistory = new ChatHistory();
         //记录用户想问的问题
@@ -164,6 +177,30 @@ public class AssistantServiceImpl implements AssistantService {
         aichatHistory.setCharacterType("ai");
         chatHistoryMapper.insert(aichatHistory);
         return text;
+    }
+
+    //ai对话异步生成文本
+    public Flux<ServerSentEvent<String>> AIConversationasyn(Long memoryId, String message, String personaprompt){
+        ChatHistory userchatHistory = new ChatHistory();
+        //记录用户想问的问题
+        userchatHistory.setMemoryId(memoryId);
+        userchatHistory.setMessage(message);
+        userchatHistory.setCharacterType("user");
+        chatHistoryMapper.insert(userchatHistory);
+        StringBuilder builder = new StringBuilder();
+        return separateChatAssistant.chat(memoryId,message,personaprompt).map(token->{
+            builder.append(token);
+            return ServerSentEvent.builder(token).event("message").build();
+        }).doOnComplete(()->{
+            //记录ai回答的问题
+            ChatHistory aichatHistory = new ChatHistory();
+            aichatHistory.setMemoryId(memoryId);
+            aichatHistory.setMessage(builder.toString());
+            aichatHistory.setCharacterType("ai");
+            chatHistoryMapper.insert(aichatHistory);
+        });
+
+
     }
 
     //文字转语音

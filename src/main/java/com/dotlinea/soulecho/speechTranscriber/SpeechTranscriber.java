@@ -2,6 +2,7 @@ package com.dotlinea.soulecho.speechTranscriber;
 
 import com.alibaba.nls.client.protocol.InputFormatEnum;
 import com.alibaba.nls.client.protocol.NlsClient;
+import com.alibaba.nls.client.protocol.OutputFormatEnum;
 import com.alibaba.nls.client.protocol.SampleRateEnum;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberListener;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberResponse;
@@ -113,6 +114,7 @@ public class SpeechTranscriber {
             transcriber.setAppKey(appKey);
             //输入音频编码方式
             transcriber.setFormat(InputFormatEnum.PCM);
+//            transcriber.setFormat(InputFormatEnum.WAV);
             //输入音频采样率
             transcriber.setSampleRate(SampleRateEnum.SAMPLE_RATE_16K);
             //是否返回中间识别结果
