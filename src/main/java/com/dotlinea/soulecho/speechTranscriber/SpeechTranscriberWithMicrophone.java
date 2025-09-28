@@ -21,7 +21,7 @@ public class SpeechTranscriberWithMicrophone {
     private String appKey;
     private String accessToken;
     NlsClient client;
-
+    String message ;
     public SpeechTranscriberWithMicrophone(String appKey, String token) {
         this.appKey = appKey;
         this.accessToken = token;
@@ -70,6 +70,7 @@ public class SpeechTranscriberWithMicrophone {
             //识别出一句话.服务端会智能断句,当识别到一句话结束时会返回此消息
             @Override
             public void onSentenceEnd(SpeechTranscriberResponse response) {
+                message=response.getTransSentenceText();
                 System.out.println("name: " + response.getName() +
                         //状态码 20000000 表示正常识别
                         ", status: " + response.getStatus() +
@@ -83,6 +84,7 @@ public class SpeechTranscriberWithMicrophone {
                         ", begin_time: " + response.getSentenceBeginTime() +
                         //当前已处理的音频时长，单位是毫秒
                         ", time: " + response.getTransSentenceTime());
+
             }
 
             //识别完毕
@@ -108,7 +110,7 @@ public class SpeechTranscriberWithMicrophone {
         return listener;
     }
 
-    public void process() {
+    public String process() {
         SpeechTranscriber transcriber = null;
         try {
             // 创建实例,建立连接
@@ -149,17 +151,9 @@ public class SpeechTranscriberWithMicrophone {
                 transcriber.close();
             }
         }
+        return message;
     }
     public void shutdown() {
         client.shutdown();
-    }
-    public static void main(String[] args) throws Exception {
-
-        String appKey = "unIJjYw7M65AoqyU";
-        String token = "8cb138f5c0fb4170bfc4c0b9f840d99e";
-
-        SpeechTranscriberWithMicrophone demo = new SpeechTranscriberWithMicrophone(appKey, token);
-        demo.process();
-        demo.shutdown();
     }
 }

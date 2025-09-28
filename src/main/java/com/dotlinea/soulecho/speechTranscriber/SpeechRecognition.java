@@ -8,9 +8,11 @@ import com.alibaba.nls.client.protocol.asr.SpeechRecognizerListener;
 import com.alibaba.nls.client.protocol.asr.SpeechRecognizerResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.socket.BinaryMessage;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.nio.ByteBuffer;
 
 //识别一句话
 public class SpeechRecognition {
@@ -121,8 +123,6 @@ public class SpeechRecognition {
                 // TODO  重要提示：这里是用读取本地文件的形式模拟实时获取语音流并发送的，因为read很快，所以这里需要sleep
                 // TODO  如果是真正的实时获取语音，则无需sleep, 如果是8k采样率语音，第二个参数改为8000
                 // 8000采样率情况下，3200byte字节建议 sleep 200ms，16000采样率情况下，3200byte字节建议 sleep 100ms
-                int deltaSleep = getSleepDelta(len, sampleRate);
-                Thread.sleep(deltaSleep);
             }
 
             //通知服务端语音数据发送完毕,等待服务端处理完成
@@ -143,7 +143,66 @@ public class SpeechRecognition {
             }
         }
     }
+    public void process1(BinaryMessage message, int sampleRate) {
+        SpeechRecognizer recognizer = null;
+        try {
+            // 传递用户自定义参数
+            String myParam = "user-param";
+            int myOrder = 1234;
+            SpeechRecognizerListener listener = getRecognizerListener(myOrder, myParam);
 
+            recognizer = new SpeechRecognizer(client, listener);
+            recognizer.setAppKey(appKey);
+
+            //设置音频编码格式
+            recognizer.setFormat(InputFormatEnum.PCM);
+            //设置音频采样率
+            if(sampleRate == 16000) {
+                recognizer.setSampleRate(SampleRateEnum.SAMPLE_RATE_16K);
+            } else if(sampleRate == 8000) {
+                recognizer.setSampleRate(SampleRateEnum.SAMPLE_RATE_8K);
+            }
+            //设置是否返回中间识别结果
+            recognizer.setEnableIntermediateResult(true);
+
+            //此方法将以上参数设置序列化为json发送给服务端,并等待服务端确认
+            long now = System.currentTimeMillis();
+            recognizer.start();
+            logger.info("ASR start latency : " + (System.currentTimeMillis() - now) + " ms");
+
+            ByteBuffer buffer = message.getPayload();
+            byte[] audioData = new byte[buffer.remaining()];
+            buffer.get(audioData);
+            logger.info("从BinaryMessage接收音频数据，大小: {} bytes", audioData.length);
+
+            // **核心修改：分块发送音频数据**
+            int chunkSize = 3200; // 常见的音频帧大小，例如对应100ms的16kHz 16bit PCM数据
+            int offset = 0;
+
+            while (offset < audioData.length) {
+                int length = Math.min(chunkSize, audioData.length - offset);
+                // 发送当前数据块
+                recognizer.send(java.util.Arrays.copyOfRange(audioData, offset, offset + length), length);
+                logger.debug("已发送音频数据块，偏移量: {}, 大小: {} bytes", offset, length);
+                offset += length;
+
+            }
+            //通知服务端语音数据发送完毕,等待服务端处理完成
+            now = System.currentTimeMillis();
+
+            // TODO 计算实际延迟: stop返回之后一般即是识别结果返回时间
+            logger.info("ASR wait for complete");
+            recognizer.stop();
+            logger.info("ASR stop latency : " + (System.currentTimeMillis() - now) + " ms");
+        } catch (Exception e) {
+            System.err.println(e.getMessage());
+        } finally {
+            //关闭连接
+            if (null != recognizer) {
+                recognizer.close();
+            }
+        }
+    }
     public void shutdown() {
         client.shutdown();
     }

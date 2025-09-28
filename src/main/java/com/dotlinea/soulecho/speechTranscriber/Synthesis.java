@@ -28,63 +28,6 @@ public class Synthesis {
             client = new NlsClient(url, token);
         }
     }
-
-//    private static SpeechSynthesizerListener getSynthesizerListener() {
-//        SpeechSynthesizerListener listener = null;
-//        try {
-//            listener = new SpeechSynthesizerListener() {
-//                File f=new File("tts_test.wav");
-//                FileOutputStream fout = new FileOutputStream(f);
-//                private boolean firstRecvBinary = true;
-//
-//                //语音合成结束
-//                @Override
-//                public void onComplete(SpeechSynthesizerResponse response) {
-//                    // TODO 当onComplete时表示所有TTS数据已经接收完成，因此这个是整个合成延迟，该延迟可能较大，未必满足实时场景
-//                    System.out.println("name: " + response.getName() + ", status: " + response.getStatus()+", output file :"+f.getAbsolutePath());
-//                }
-//
-//                //语音合成的语音二进制数据
-//                @Override
-//                public void onMessage(ByteBuffer message) {
-//                    try {
-//                        if(firstRecvBinary) {
-//                            // TODO 此处是计算首包语音流的延迟，收到第一包语音流时，即可以进行语音播放，以提升响应速度(特别是实时交互场景下)
-//                            firstRecvBinary = false;
-//                            long now = System.currentTimeMillis();
-//                            logger.info("tts 延迟 : " + (now - Synthesis.startTime) + " ms");
-//                        }
-//                        byte[] bytesArray = new byte[message.remaining()];
-//                        message.get(bytesArray, 0, bytesArray.length);
-//                        //System.out.println("write array:" + bytesArray.length);
-//                        System.out.println("====================");
-//                        fout.write(bytesArray);
-//                    } catch (IOException e) {
-//                        e.printStackTrace();
-//                    }
-//                }
-//
-//                @Override
-//                public void onFail(SpeechSynthesizerResponse response){
-//                    // TODO 重要提示： task_id很重要，是调用方和服务端通信的唯一ID标识，当遇到问题时，需要提供此task_id以便排查
-//                    System.out.println(
-//                            "task_id: " + response.getTaskId() +
-//                                    //状态码 20000000 表示识别成功
-//                                    ", status: " + response.getStatus() +
-//                                    //错误信息
-//                                    ", status_text: " + response.getStatusText());
-//                }
-//
-//                @Override
-//                public void onMetaInfo(SpeechSynthesizerResponse response) {
-//                    System.out.println("MetaInfo event:{}" +  response.getTaskId());
-//                }
-//            };
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//        }
-//        return listener;
-//    }
     private  SpeechSynthesizerListener getSynthesizerListener() {
         SpeechSynthesizerListener listener = null;
         try {
@@ -99,7 +42,6 @@ public class Synthesis {
                     // 可以在这里获取完整的二进制数据：
                     audioData = byteStream.toByteArray();
                 }
-
                 //语音合成的语音二进制数据
                 @Override
                 public void onMessage(ByteBuffer message) {
@@ -148,7 +90,6 @@ public class Synthesis {
         }
         return listener;
     }
-
     public byte [] process(String text,String voice) {
         SpeechSynthesizer synthesizer = null;
         try {
@@ -180,7 +121,6 @@ public class Synthesis {
             //等待语音合成结束
             synthesizer.waitForComplete();
             logger.info("tts结束的延迟" + (System.currentTimeMillis() - start) + " ms");
-
         } catch (Exception e) {
             e.printStackTrace();
         } finally {

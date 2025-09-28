@@ -2,8 +2,10 @@ package com.dotlinea.soulecho.controller;
 
 import com.dotlinea.soulecho.dto.CharacterDTO;
 import com.dotlinea.soulecho.entity.Character;
+import com.dotlinea.soulecho.entity.ChatHistory;
 import com.dotlinea.soulecho.service.CharacterService;
 //import com.dotlinea.soulecho.service.RealtimeChatService;
+import com.dotlinea.soulecho.service.ChatHistoryService;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import org.slf4j.Logger;
@@ -36,6 +38,8 @@ public class CharacterController {
 
     private final CharacterService characterService;
 //    private final RealtimeChatService chatService;
+
+    private final ChatHistoryService chatHistoryService;
 
     /**
      * 文本聊天接口
@@ -210,6 +214,12 @@ public class CharacterController {
             logger.error("删除角色失败，ID: {}", id, e);
             return ResponseEntity.internalServerError().build();
         }
+    }
+    //聊天记录
+    @GetMapping("/ChatHistory")
+    public List<ChatHistory> ChatHistory(@RequestParam Long id,@RequestParam String CharacterType) {
+        List<ChatHistory> chatHistory = chatHistoryService.selectByMemoryId(id,CharacterType);
+        return chatHistory;
     }
 
     /**
