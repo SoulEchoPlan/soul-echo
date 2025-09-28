@@ -9,6 +9,10 @@ import java.time.LocalDateTime;
 /**
  * AI角色实体类
  * 存储AI角色的基本信息，包括角色描述、人设提示、头像和语音配置等
+ *
+ * @author fanfan187
+ * @version v1.0.0
+ * @since v1.0.0
  */
 @Data
 @Entity

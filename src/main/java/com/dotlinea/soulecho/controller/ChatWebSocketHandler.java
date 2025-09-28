@@ -30,8 +30,17 @@ import java.nio.charset.StandardCharsets;
 public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketHandler.class);
+    private static final String PERSONA_PROMPT_PARAM = "personaPrompt";
+    private static final String CHARACTER_ID_PARAM = "characterId";
+    private static final String DEFAULT_PERSONA_PROMPT = "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
+
     private final RealtimeChatService chatService;
 
+    /**
+     * 当WebSocket连接建立时调用
+     *
+     * @param session WebSocket会话
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         logger.info("WebSocket连接已建立，SessionID: {}, 远程地址: {}",
@@ -41,28 +50,33 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         URI uri = session.getUri();
         if (uri != null && uri.getQuery() != null) {
             String query = uri.getQuery();
-            String characterId = extractParameter(query, "characterId");
-            String personaPrompt = extractParameter(query, "personaPrompt");
+            String characterId = extractParameter(query, CHARACTER_ID_PARAM);
+            String personaPrompt = extractParameter(query, PERSONA_PROMPT_PARAM);
 
             // 将角色信息存储到会话属性中
             if (characterId != null) {
-                session.getAttributes().put("characterId", characterId);
+                session.getAttributes().put(CHARACTER_ID_PARAM, characterId);
             }
             if (personaPrompt != null) {
-                session.getAttributes().put("personaPrompt", personaPrompt);
+                session.getAttributes().put(PERSONA_PROMPT_PARAM, personaPrompt);
                 logger.debug("会话 {} 设置角色提示词: {}", session.getId(), personaPrompt);
             }
         }
 
         // 设置默认角色提示词（如果未提供）
-        if (!session.getAttributes().containsKey("personaPrompt")) {
-            String defaultPrompt = "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
-            session.getAttributes().put("personaPrompt", defaultPrompt);
+        if (!session.getAttributes().containsKey(PERSONA_PROMPT_PARAM)) {
+            session.getAttributes().put(PERSONA_PROMPT_PARAM, DEFAULT_PERSONA_PROMPT);
         }
 
         logger.info("会话 {} 初始化完成", session.getId());
     }
 
+    /**
+     * 当接收到二进制消息时调用
+     *
+     * @param session WebSocket会话
+     * @param message 二进制消息
+     */
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
         logger.debug("接收到会话 {} 的二进制消息，大小: {} bytes",
@@ -77,6 +91,12 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         }
     }
 
+    /**
+     * 当接收到文本消息时调用
+     *
+     * @param session WebSocket会话
+     * @param message 文本消息
+     */
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         String sessionId = session.getId();
@@ -86,7 +106,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
         try {
             // 处理文本消息
-            String personaPrompt = (String) session.getAttributes().get("personaPrompt");
+            String personaPrompt = (String) session.getAttributes().get(PERSONA_PROMPT_PARAM);
             String response = chatService.processTextChat(personaPrompt, textPayload, sessionId);
 
             if (response != null && !response.trim().isEmpty()) {
@@ -103,6 +123,12 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         }
     }
 
+    /**
+     * 当WebSocket传输错误时调用
+     *
+     * @param session WebSocket会话
+     * @param exception 错误信息
+     */
     @Override
     public void handleTransportError(WebSocketSession session, @NotNull Throwable exception) {
         logger.error("WebSocket传输错误，SessionID: {}, 异常信息: {}",
@@ -112,6 +138,12 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         chatService.cleanupSession(session.getId());
     }
 
+    /**
+     * 当WebSocket连接关闭时调用
+     *
+     * @param session WebSocket会话
+     * @param status 关闭状态
+     */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         logger.info("WebSocket连接已关闭，SessionID: {}, 状态码: {}, 原因: {}",
