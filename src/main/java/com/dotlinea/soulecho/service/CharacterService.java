@@ -1,6 +1,7 @@
 package com.dotlinea.soulecho.service;
 
-import com.dotlinea.soulecho.dto.CharacterDTO;
+import com.dotlinea.soulecho.dto.CharacterRequestDTO;
+import com.dotlinea.soulecho.dto.CharacterResponseDTO;
 import com.dotlinea.soulecho.dto.ChatRequestDTO;
 import com.dotlinea.soulecho.dto.ChatResponseDTO;
 import com.dotlinea.soulecho.entity.Character;
@@ -21,23 +22,23 @@ public interface CharacterService {
 
     /**
      * 查询所有角色
-     * @return 角色DTO列表
+     * @return 角色响应DTO列表
      */
-    List<CharacterDTO> findAll();
+    List<CharacterResponseDTO> findAll();
 
     /**
      * 根据ID查找角色
      * @param id 角色ID
-     * @return 角色实体, 如果找不到则返回null
+     * @return 角色响应DTO
      */
-    Character findById(Long id);
+    CharacterResponseDTO findCharacterById(Long id);
 
     /**
-     * 保存角色
-     * @param character 角色实体
-     * @return 保存后的角色实体
+     * 创建角色
+     * @param requestDTO 角色请求DTO
+     * @return 创建后的角色响应DTO
      */
-    Character save(Character character);
+    CharacterResponseDTO createCharacter(CharacterRequestDTO requestDTO);
 
     /**
      * 根据ID删除角色
@@ -55,17 +56,17 @@ public interface CharacterService {
 
     /**
      * 查询所有公开角色
-     * @return 公开角色DTO列表
+     * @return 公开角色响应DTO列表
      */
-    List<CharacterDTO> findAllPublic();
+    List<CharacterResponseDTO> findAllPublic();
 
     /**
      * 更新角色信息
      * @param id 角色ID
-     * @param characterDTO 角色DTO
-     * @return 更新后的角色DTO
+     * @param requestDTO 角色请求DTO
+     * @return 更新后的角色响应DTO
      */
-    CharacterDTO updateCharacter(Long id, CharacterDTO characterDTO);
+    CharacterResponseDTO updateCharacter(Long id, CharacterRequestDTO requestDTO);
 
     /**
      * 处理聊天请求

@@ -30,6 +30,10 @@ import java.nio.charset.StandardCharsets;
 public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketHandler.class);
+    private static final String PERSONA_PROMPT_PARAM = "personaPrompt";
+    private static final String CHARACTER_ID_PARAM = "characterId";
+    private static final String DEFAULT_PERSONA_PROMPT = "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
+
     private final RealtimeChatService chatService;
 
     /**
@@ -46,23 +50,22 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         URI uri = session.getUri();
         if (uri != null && uri.getQuery() != null) {
             String query = uri.getQuery();
-            String characterId = extractParameter(query, "characterId");
-            String personaPrompt = extractParameter(query, "personaPrompt");
+            String characterId = extractParameter(query, CHARACTER_ID_PARAM);
+            String personaPrompt = extractParameter(query, PERSONA_PROMPT_PARAM);
 
             // 将角色信息存储到会话属性中
             if (characterId != null) {
-                session.getAttributes().put("characterId", characterId);
+                session.getAttributes().put(CHARACTER_ID_PARAM, characterId);
             }
             if (personaPrompt != null) {
-                session.getAttributes().put("personaPrompt", personaPrompt);
+                session.getAttributes().put(PERSONA_PROMPT_PARAM, personaPrompt);
                 logger.debug("会话 {} 设置角色提示词: {}", session.getId(), personaPrompt);
             }
         }
 
         // 设置默认角色提示词（如果未提供）
-        if (!session.getAttributes().containsKey("personaPrompt")) {
-            String defaultPrompt = "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
-            session.getAttributes().put("personaPrompt", defaultPrompt);
+        if (!session.getAttributes().containsKey(PERSONA_PROMPT_PARAM)) {
+            session.getAttributes().put(PERSONA_PROMPT_PARAM, DEFAULT_PERSONA_PROMPT);
         }
 
         logger.info("会话 {} 初始化完成", session.getId());
@@ -103,7 +106,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
         try {
             // 处理文本消息
-            String personaPrompt = (String) session.getAttributes().get("personaPrompt");
+            String personaPrompt = (String) session.getAttributes().get(PERSONA_PROMPT_PARAM);
             String response = chatService.processTextChat(personaPrompt, textPayload, sessionId);
 
             if (response != null && !response.trim().isEmpty()) {

@@ -1,13 +1,14 @@
 package com.dotlinea.soulecho.controller;
 
-import com.dotlinea.soulecho.dto.CharacterDTO;
+import com.dotlinea.soulecho.dto.CharacterRequestDTO;
+import com.dotlinea.soulecho.dto.CharacterResponseDTO;
 import com.dotlinea.soulecho.dto.ChatRequestDTO;
 import com.dotlinea.soulecho.dto.ChatResponseDTO;
-import com.dotlinea.soulecho.entity.Character;
 import com.dotlinea.soulecho.service.CharacterService;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -53,15 +54,10 @@ public class CharacterController {
      * @return 角色列表
      */
     @GetMapping
-    public ResponseEntity<List<CharacterDTO>> getAllCharacters() {
+    public ResponseEntity<List<CharacterResponseDTO>> getAllCharacters() {
         logger.debug("获取所有角色列表");
-        try {
-            List<CharacterDTO> characters = characterService.findAll();
-            return ResponseEntity.ok(characters);
-        } catch (Exception e) {
-            logger.error("获取角色列表失败", e);
-            return ResponseEntity.internalServerError().build();
-        }
+        List<CharacterResponseDTO> characters = characterService.findAll();
+        return ResponseEntity.ok(characters);
     }
 
     /**
@@ -70,63 +66,35 @@ public class CharacterController {
      * @return 角色信息
      */
     @GetMapping("/{id}")
-    public ResponseEntity<CharacterDTO> getCharacterById(@PathVariable Long id) {
+    public ResponseEntity<CharacterResponseDTO> getCharacterById(@PathVariable Long id) {
         logger.debug("获取角色信息，ID: {}", id);
-        try {
-            Character character = characterService.findById(id);
-            if (character != null) {
-                CharacterDTO dto = convertToDTO(character);
-                return ResponseEntity.ok(dto);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-        } catch (Exception e) {
-            logger.error("获取角色信息失败，ID: {}", id, e);
-            return ResponseEntity.internalServerError().build();
-        }
+        CharacterResponseDTO character = characterService.findCharacterById(id);
+        return ResponseEntity.ok(character);
     }
 
     /**
      * 创建角色
-     * @param characterDTO 角色数据
+     * @param requestDTO 角色请求数据
      * @return 创建的角色信息
      */
     @PostMapping
-    public ResponseEntity<CharacterDTO> createCharacter(@Valid @RequestBody CharacterDTO characterDTO) {
-        logger.info("创建角色: {}", characterDTO.getName());
-        try {
-            Character character = convertToEntity(characterDTO);
-            Character savedCharacter = characterService.save(character);
-            CharacterDTO responseDTO = convertToDTO(savedCharacter);
-            return ResponseEntity.ok(responseDTO);
-        } catch (Exception e) {
-            logger.error("创建角色失败", e);
-            return ResponseEntity.internalServerError().build();
-        }
+    public ResponseEntity<CharacterResponseDTO> createCharacter(@Valid @RequestBody CharacterRequestDTO requestDTO) {
+        logger.info("创建角色: {}", requestDTO.name());
+        CharacterResponseDTO response = characterService.createCharacter(requestDTO);
+        return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     /**
      * 更新角色信息
      * @param id 角色ID
-     * @param characterDTO 更新的角色数据
+     * @param requestDTO 更新的角色数据
      * @return 更新后的角色信息
      */
     @PutMapping("/{id}")
-    public ResponseEntity<CharacterDTO> updateCharacter(@PathVariable Long id, @Valid @RequestBody CharacterDTO characterDTO) {
+    public ResponseEntity<CharacterResponseDTO> updateCharacter(@PathVariable Long id, @Valid @RequestBody CharacterRequestDTO requestDTO) {
         logger.info("更新角色信息，ID: {}", id);
-        try {
-            CharacterDTO updatedCharacter = characterService.updateCharacter(id, characterDTO);
-            return ResponseEntity.ok(updatedCharacter);
-        } catch (RuntimeException e) {
-            if (e.getMessage().contains("未找到")) {
-                return ResponseEntity.notFound().build();
-            }
-            logger.error("更新角色失败，ID: {}", id, e);
-            return ResponseEntity.internalServerError().build();
-        } catch (Exception e) {
-            logger.error("更新角色失败，ID: {}", id, e);
-            return ResponseEntity.internalServerError().build();
-        }
+        CharacterResponseDTO response = characterService.updateCharacter(id, requestDTO);
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -137,63 +105,11 @@ public class CharacterController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCharacter(@PathVariable Long id) {
         logger.info("删除角色，ID: {}", id);
-        try {
-            boolean deleted = characterService.deleteById(id);
-            if (deleted) {
-                return ResponseEntity.ok().build();
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-        } catch (Exception e) {
-            logger.error("删除角色失败，ID: {}", id, e);
-            return ResponseEntity.internalServerError().build();
+        boolean deleted = characterService.deleteById(id);
+        if (deleted) {
+            return ResponseEntity.ok().build();
+        } else {
+            return ResponseEntity.notFound().build();
         }
     }
-
-    /**
-     * 实体转换为DTO
-     */
-    private CharacterDTO convertToDTO(Character character) {
-        CharacterDTO dto = new CharacterDTO();
-        dto.setId(character.getId());
-        dto.setName(character.getName());
-        dto.setPersonaPrompt(character.getPersonaPrompt());
-        dto.setAvatarUrl(character.getAvatarUrl());
-        dto.setVoiceId(character.getVoiceId());
-        dto.setPublic(character.isPublic());
-        return dto;
-    }
-
-    /**
-     * DTO转换为实体
-     */
-    private Character convertToEntity(CharacterDTO dto) {
-        Character character = new Character();
-        character.setName(dto.getName());
-        character.setPersonaPrompt(dto.getPersonaPrompt());
-        character.setAvatarUrl(dto.getAvatarUrl());
-        character.setVoiceId(dto.getVoiceId());
-        character.setPublic(dto.isPublic());
-        return character;
-    }
-
-    /**
-     * 从DTO更新实体
-     */
-    private void updateCharacterFromDTO(Character character, CharacterDTO dto) {
-        if (dto.getName() != null) {
-            character.setName(dto.getName());
-        }
-        if (dto.getPersonaPrompt() != null) {
-            character.setPersonaPrompt(dto.getPersonaPrompt());
-        }
-        if (dto.getAvatarUrl() != null) {
-            character.setAvatarUrl(dto.getAvatarUrl());
-        }
-        if (dto.getVoiceId() != null) {
-            character.setVoiceId(dto.getVoiceId());
-        }
-        character.setPublic(dto.isPublic());
-    }
-
 }
