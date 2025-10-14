@@ -235,7 +235,15 @@ public class CharacterServiceImpl implements CharacterService {
      */
     private String processLlmChat(String personaPrompt, String message, String sessionId, String characterName) {
         try {
-            return chatService.processTextChat(personaPrompt, message, sessionId);
+            // 使用StringBuilder累积流式响应
+            StringBuilder responseBuilder = new StringBuilder();
+
+            // 调用流式方法，累积完整响应
+            chatService.processTextChatStream(personaPrompt, message, sessionId, chunk -> {
+                responseBuilder.append(chunk);
+            });
+
+            return responseBuilder.toString();
         } catch (Exception llmEx) {
             String errorContext = characterName != null
                 ? String.format("SessionID: %s, 角色: %s", sessionId, characterName)

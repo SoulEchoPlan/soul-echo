@@ -3,6 +3,8 @@ package com.dotlinea.soulecho.service;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.util.function.Consumer;
+
 /**
  * 实时聊天服务接口
  * <p>
@@ -23,13 +25,13 @@ public interface RealtimeChatService {
     void handleBinaryMessage(WebSocketSession session, BinaryMessage message);
 
     /**
-     * 处理文本消息
+     * 处理流式文本聊天
      * @param personaPrompt 角色设定
      * @param userInput 用户输入
      * @param sessionId 会话ID
-     * @return LLM回复
+     * @param chunkConsumer 文本块消费者，每收到一块文本就会被调用
      */
-    String processTextChat(String personaPrompt, String userInput, String sessionId);
+    void processTextChatStream(String personaPrompt, String userInput, String sessionId, Consumer<String> chunkConsumer);
 
     /**
      * 清理会话
