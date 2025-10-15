@@ -105,17 +105,23 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         logger.debug("接收到会话 {} 的文本消息: {}", sessionId, textPayload);
 
         try {
-            // 处理文本消息
-            String personaPrompt = (String) session.getAttributes().get(PERSONA_PROMPT_PARAM);
-            String response = chatService.processTextChat(personaPrompt, textPayload, sessionId);
 
-            if (response != null && !response.trim().isEmpty()) {
-                // 发送文本回复
-                session.sendMessage(new TextMessage(response));
-                logger.debug("向会话 {} 发送文本回复: {}", sessionId, response);
-            } else {
-                sendErrorResponse(session, "无法生成回复，请重试");
-            }
+            // 流式处理文本消息
+            String personaPrompt = (String) session.getAttributes().get(PERSONA_PROMPT_PARAM);
+
+            // 调用流式方法，每收到文本块就立即发送给前端
+            chatService.processTextChatStream(personaPrompt, textPayload, sessionId, chunk -> {
+                try {
+                    if (session.isOpen()) {
+                        session.sendMessage(new TextMessage(chunk));
+                        logger.trace("向会话 {} 发送文本块，长度: {}", sessionId, chunk.length());
+                    }
+                } catch (Exception e) {
+                    logger.error("向会话 {} 发送文本块失败", sessionId, e);
+                }
+            });
+
+            logger.debug("会话 {} 文本流式处理完成", sessionId);
 
         } catch (Exception e) {
             logger.error("处理会话 {} 的文本消息时发生异常", sessionId, e);
