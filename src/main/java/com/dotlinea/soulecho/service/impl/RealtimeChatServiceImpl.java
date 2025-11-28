@@ -166,12 +166,13 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
             // === 步骤3: 获取角色设定 ===
             String personaPrompt = getPersonaPrompt(session);
+            String characterName = getCharacterName(session);
 
             // === 步骤4: LLM流式对话生成 + 句子级流式TTS ===
             logger.debug("会话 {} 开始 LLM 流式对话生成", sessionId);
             StringBuilder sentenceBuffer = new StringBuilder();
-            
-            processTextChatStream(personaPrompt, recognizedText, sessionId, chunk -> {
+
+            processTextChatStream(personaPrompt, recognizedText, sessionId, characterName, chunk -> {
                 sentenceBuffer.append(chunk);
 
                 // 使用正则表达式提取完整句子
@@ -248,6 +249,11 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     @Override
     public void processTextChatStream(String personaPrompt, String userInput, String sessionId, java.util.function.Consumer<String> chunkConsumer) {
+        processTextChatStream(personaPrompt, userInput, sessionId, null, chunkConsumer);
+    }
+
+    @Override
+    public void processTextChatStream(String personaPrompt, String userInput, String sessionId, String characterName, java.util.function.Consumer<String> chunkConsumer) {
         if (userInput == null || userInput.trim().isEmpty()) {
             return;
         }
@@ -260,13 +266,25 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             StringBuilder fullResponse = new StringBuilder();
 
             // 调用 LLM 流式生成，逐块处理
-            llmClient.chatStream(personaPrompt, history, userInput, chunk -> {
-                fullResponse.append(chunk);
-                // 将文本块透传给消费者
-                if (chunkConsumer != null) {
-                    chunkConsumer.accept(chunk);
-                }
-            });
+            if (characterName != null && !characterName.trim().isEmpty()) {
+                // 使用支持知识库的方法
+                llmClient.chatStream(personaPrompt, history, userInput, characterName, chunk -> {
+                    fullResponse.append(chunk);
+                    // 将文本块透传给消费者
+                    if (chunkConsumer != null) {
+                        chunkConsumer.accept(chunk);
+                    }
+                });
+            } else {
+                // 使用普通方法
+                llmClient.chatStream(personaPrompt, history, userInput, chunk -> {
+                    fullResponse.append(chunk);
+                    // 将文本块透传给消费者
+                    if (chunkConsumer != null) {
+                        chunkConsumer.accept(chunk);
+                    }
+                });
+            }
 
             // LLM 流式生成完成后，更新会话历史
             String response = fullResponse.toString();
@@ -322,6 +340,22 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
         // 默认角色设定
         return "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
+    }
+
+    /**
+     * 获取会话的角色名称
+     * @param session WebSocket会话
+     * @return 角色名称
+     */
+    private String getCharacterName(WebSocketSession session) {
+        // 从会话属性中获取角色名称
+        Object characterName = session.getAttributes().get("characterName");
+        if (characterName instanceof String nameString) {
+            return nameString;
+        }
+
+        // 默认角色名称
+        return "default";
     }
 
     /**
