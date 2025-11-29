@@ -1,0 +1,20 @@
+{
+  "name": "soul-echo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SoulEchoPlan/soul-echo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/SoulEchoPlan/soul-echo/issues"
+  },
+  "homepage": "https://github.com/SoulEchoPlan/soul-echo#readme"
+}

@@ -1,28 +1,29 @@
 package com.dotlinea.soulecho.service.impl;
 
-import com.alibaba.dashscope.embeddings.TextEmbedding;
-import com.alibaba.dashscope.embeddings.TextEmbeddingParam;
-import com.alibaba.dashscope.embeddings.TextEmbeddingResult;
-import com.dotlinea.soulecho.service.KnowledgeService;
-import okhttp3.*;
-import org.json.JSONArray;
 import org.json.JSONObject;
+import com.dotlinea.soulecho.service.KnowledgeService;
+import com.dotlinea.soulecho.entity.KnowledgeBase;
+import com.dotlinea.soulecho.repository.KnowledgeBaseRepository;
+import okhttp3.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.PostConstruct;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 知识库服务实现类
  * <p>
- * 基于阿里云OpenSearch向量检索服务和DashScope文本向量化模型
+ * 基于阿里云百炼托管知识库服务，使用DashScope SDK实现
+ * 支持文件上传、解析和智能检索
  * </p>
  *
  * @author fanfan187
@@ -34,47 +35,49 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeServiceImpl.class);
 
-    @Value("${vector.api.key}")
+    @Value("${bailian.workspace.id}")
+    private String workspaceId;
+
+    @Value("${bailian.knowledge.index.id}")
+    private String indexId;
+
+    @Value("${bailian.api.key}")
     private String apiKey;
 
-    @Value("${vector.opensearch.endpoint}")
-    private String openSearchEndpoint;
-
-    @Value("${vector.opensearch.instance.id}")
-    private String instanceId;
-
-    @Value("${vector.opensearch.app.name:soul-echo}")
-    private String appName;
-
-    @Value("${vector.embedding.model:text-embedding-v2}")
-    private String embeddingModel;
-
-    @Value("${vector.search.top.k:5}")
-    private int topK;
-
     private OkHttpClient httpClient;
-    private TextEmbedding textEmbedding;
+
+    @Autowired
+    private KnowledgeBaseRepository knowledgeBaseRepository;
+
+    // 百炼API端点
+    private static final String BAILIAN_API_BASE = "https://bailian.cn-beijing.aliyuncs.com";
+    private static final String BAILIAN_API_VERSION = "2023-12-29";
 
     @PostConstruct
     public void init() {
         try {
-            logger.info("初始化知识库服务...");
+            logger.info("初始化百炼知识库服务...");
 
+            // 初始化HTTP客户端
             httpClient = new OkHttpClient.Builder()
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(60, TimeUnit.SECONDS)
                     .writeTimeout(60, TimeUnit.SECONDS)
                     .build();
 
-            textEmbedding = new TextEmbedding();
-
-            logger.info("知识库服务初始化成功，使用向量模型: {}", embeddingModel);
+            logger.info("百炼知识库服务初始化成功，Workspace: {}, Index: {}", workspaceId, indexId);
         } catch (Exception e) {
-            logger.error("知识库服务初始化失败", e);
+            logger.error("百炼知识库服务初始化失败", e);
             throw new RuntimeException("知识库服务初始化异常", e);
         }
     }
 
+    /**
+     * 向知识库中添加文本文档
+     *
+     * @param characterName 角色名称，用于标识文档所属的角色
+     * @param text 文档内容文本，不能为空或空白字符串
+     */
     @Override
     public void addDocument(String characterName, String text) {
         if (text == null || text.trim().isEmpty()) {
@@ -83,104 +86,181 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
 
         try {
-            logger.debug("为角色 {} 添加文档到知识库: {}", characterName, text.substring(0, Math.min(50, text.length())));
+            logger.info("开始为角色 {} 添加文本文档到知识库", characterName);
 
-            List<Double> vector = embedText(text);
+            // 构造调用百炼API的请求参数
+            Map<String, Object> request = new HashMap<>();
+            request.put("IndexId", indexId);
+            request.put("Content", text);
+            request.put("CharacterName", characterName);
+            request.put("DocumentName", characterName + "_" + System.currentTimeMillis());
 
-            JSONObject document = new JSONObject();
-            document.put("id", System.currentTimeMillis() + "_" + characterName);
-            document.put("character_name", characterName);
-            document.put("text", text);
-            document.put("vector", new JSONArray(vector));
+            // 调用百炼的文本文档添加API接口
+            Map<String, Object> response = callBailianAPI("AddTextDocument", request);
 
-            String url = String.format("%s/v3/openapi/apps/%s/actions/pushing", openSearchEndpoint, appName);
-
-            JSONArray documents = new JSONArray();
-            documents.put(document);
-
-            JSONObject requestBody = new JSONObject();
-            requestBody.put("items", documents);
-
-            Request request = new Request.Builder()
-                    .url(url)
-                    .addHeader("Authorization", "DASHSCOPE " + apiKey)
-                    .addHeader("Content-Type", "application/json")
-                    .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
-                    .build();
-
-            try (Response response = httpClient.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                    logger.error("添加文档到知识库失败，HTTP状态码: {}, 响应: {}",
-                            response.code(), response.body() != null ? response.body().string() : "");
-                } else {
-                    logger.info("成功添加文档到知识库，角色: {}", characterName);
-                }
+            // 处理API响应结果
+            if (response != null && response.containsKey("DocumentId")) {
+                logger.info("成功为角色 {} 添加文本文档到知识库，DocumentId: {}",
+                    characterName, response.get("DocumentId"));
+            } else {
+                logger.error("为角色 {} 添加文本文档失败，响应异常", characterName);
             }
 
         } catch (Exception e) {
-            logger.error("添加文档到知识库时发生异常", e);
+            logger.error("为角色 {} 添加文本文档时发生异常", characterName, e);
+            throw new RuntimeException("添加文本文档失败: " + e.getMessage(), e);
+        }
+    }
+
+
+    @Override
+    public List<String> search(String characterName, String query) {
+        // 为了保持向后兼容性，使用searchByCharacterId的默认实现
+        try {
+            return searchByCharacterId(1L, query);
+        } catch (Exception e) {
+            logger.error("检索知识库时发生异常，角色: {}, 查询: {}", characterName, query, e);
+            return new ArrayList<>();
         }
     }
 
     @Override
-    public List<String> search(String characterName, String query) {
+    public Map<String, Object> uploadDocument(Long characterId, MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new RuntimeException("上传文件不能为空");
+        }
+
+        try {
+            logger.info("开始上传文件到百炼知识库，角色ID: {}, 文件名: {}", characterId, file.getOriginalFilename());
+
+            // 先在数据库中创建记录，状态为UPLOADING
+            KnowledgeBase knowledgeBase = KnowledgeBase.builder()
+                    .characterId(characterId)
+                    .fileName(file.getOriginalFilename())
+                    .fileSize(file.getSize())
+                    .status("UPLOADING")
+                    .build();
+
+            knowledgeBase = knowledgeBaseRepository.save(knowledgeBase);
+
+            try {
+                // 第一步：申请文件上传租约
+                String md5Hash = calculateMD5(file.getInputStream());
+                knowledgeBase.setFileMd5(md5Hash);
+
+                long fileSize = file.getSize();
+
+                Map<String, Object> leaseRequest = new HashMap<>();
+                leaseRequest.put("FileName", file.getOriginalFilename());
+                leaseRequest.put("FileMd5", md5Hash);
+                leaseRequest.put("FileSize", fileSize);
+
+                Map<String, Object> leaseResponse = callBailianAPI("ApplyFileUploadLease", leaseRequest);
+
+                if (leaseResponse == null || !leaseResponse.containsKey("UploadUrl")) {
+                    throw new RuntimeException("申请文件上传租约失败");
+                }
+
+                String uploadUrl = (String) leaseResponse.get("UploadUrl");
+                String fileId = (String) leaseResponse.get("FileId");
+
+                // 第二步：上传文件到提供的URL
+                uploadFileToUrl(uploadUrl, file.getInputStream(), file.getOriginalFilename());
+
+                // 第三步：通知百炼文件已上传完成
+                Map<String, Object> addFileRequest = new HashMap<>();
+                addFileRequest.put("FileId", fileId);
+
+                Map<String, Object> addFileResponse = callBailianAPI("AddFile", addFileRequest);
+
+                if (addFileResponse == null || !addFileResponse.containsKey("AliyunFileId")) {
+                    throw new RuntimeException("文件添加通知失败");
+                }
+
+                String aliyunFileId = (String) addFileResponse.get("AliyunFileId");
+                knowledgeBase.setAliyunFileId(aliyunFileId);
+
+                // 第四步：提交索引任务，将文件添加到知识库索引
+                Map<String, Object> indexRequest = new HashMap<>();
+                indexRequest.put("IndexId", indexId);
+                List<String> fileIds = Arrays.asList(aliyunFileId);
+                indexRequest.put("FileIds", fileIds);
+
+                Map<String, Object> indexResponse = callBailianAPI("SubmitIndexAddDocumentsJob", indexRequest);
+
+                if (indexResponse == null || !indexResponse.containsKey("JobId")) {
+                    throw new RuntimeException("提交索引任务失败");
+                }
+
+                String jobId = (String) indexResponse.get("JobId");
+                knowledgeBase.setJobId(jobId);
+                knowledgeBase.setStatus("INDEXING");
+
+                // 保存更新后的记录
+                knowledgeBase = knowledgeBaseRepository.save(knowledgeBase);
+
+                // 构造返回结果
+                Map<String, Object> result = new HashMap<>();
+                result.put("id", knowledgeBase.getId());
+                result.put("fileId", aliyunFileId);
+                result.put("characterId", characterId);
+                result.put("fileName", file.getOriginalFilename());
+                result.put("status", "INDEXING"); // 索引中
+                result.put("message", "文件上传成功，正在进行索引处理");
+                result.put("uploadTime", knowledgeBase.getCreatedAt());
+
+                logger.info("文件上传成功，FileId: {}, 状态: INDEXING", aliyunFileId);
+                return result;
+
+            } catch (Exception e) {
+                // 如果上传过程中出现错误，更新数据库记录状态
+                knowledgeBase.setStatus("FAILED");
+                knowledgeBase.setErrorMessage(e.getMessage());
+                knowledgeBaseRepository.save(knowledgeBase);
+                throw e;
+            }
+
+        } catch (Exception e) {
+            logger.error("上传文件到百炼知识库失败", e);
+            throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public List<String> searchByCharacterId(Long characterId, String query) {
         if (query == null || query.trim().isEmpty()) {
             logger.warn("查询文本为空");
             return new ArrayList<>();
         }
 
         try {
-            logger.debug("为角色 {} 检索知识库，查询: {}", characterName, query);
+            logger.debug("检索知识库，角色ID: {}, 查询: {}", characterId, query);
 
-            List<Double> queryVector = embedText(query);
+            Map<String, Object> retrieveRequest = new HashMap<>();
+            retrieveRequest.put("IndexId", indexId);
+            retrieveRequest.put("Query", query);
+            retrieveRequest.put("TopK", 5);
 
-            String url = String.format("%s/v3/openapi/apps/%s/actions/query", openSearchEndpoint, appName);
+            Map<String, Object> retrieveResponse = callBailianAPI("Retrieve", retrieveRequest);
 
-            JSONObject vectorQuery = new JSONObject();
-            vectorQuery.put("vector", new JSONArray(queryVector));
-            vectorQuery.put("top_k", topK);
-
-            JSONObject filter = new JSONObject();
-            filter.put("character_name", characterName);
-
-            JSONObject requestBody = new JSONObject();
-            requestBody.put("query", vectorQuery);
-            requestBody.put("filter", filter);
-
-            Request request = new Request.Builder()
-                    .url(url)
-                    .addHeader("Authorization", "DASHSCOPE " + apiKey)
-                    .addHeader("Content-Type", "application/json")
-                    .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
-                    .build();
-
-            String responseBody;
-            try (Response response = httpClient.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                    logger.error("检索知识库失败，HTTP状态码: {}, 响应: {}",
-                            response.code(), response.body() != null ? response.body().string() : "");
-                    return new ArrayList<>();
-                }
-
-                if (response.body() != null) {
-                    responseBody = response.body().string();
-                }
+            if (retrieveResponse == null || !retrieveResponse.containsKey("Results")) {
+                logger.warn("检索结果为空");
+                return new ArrayList<>();
             }
-            JSONObject jsonResponse = new JSONObject(responseBody);
-            JSONArray results = jsonResponse.optJSONArray("results");
 
+            List<Map<String, Object>> results = (List<Map<String, Object>>) retrieveResponse.get("Results");
             List<String> knowledgeChunks = new ArrayList<>();
+
             if (results != null) {
-                for (int i = 0; i < results.length(); i++) {
-                    JSONObject result = results.getJSONObject(i);
-                    String text = result.optString("text");
+                for (Map<String, Object> result : results) {
+                    String text = (String) result.get("Text");
                     if (text != null && !text.isEmpty()) {
                         knowledgeChunks.add(text);
                     }
                 }
             }
 
-            logger.info("为角色 {} 检索到 {} 条知识片段", characterName, knowledgeChunks.size());
+            logger.info("检索到 {} 条知识片段", knowledgeChunks.size());
             return knowledgeChunks;
 
         } catch (Exception e) {
@@ -189,35 +269,187 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
     }
 
-    /**
-     * 将文本转换为向量
-     *
-     * @param text 文本内容
-     * @return 向量表示
-     */
-    private List<Double> embedText(String text) {
+    @Override
+    public boolean deleteDocument(Long documentId) {
         try {
-            TextEmbeddingParam param = TextEmbeddingParam.builder()
-                    .apiKey(apiKey)
-                    .model(embeddingModel)
-                    .texts(Collections.singletonList(text))
-                    .build();
+            logger.info("删除知识库文档，ID: {}", documentId);
 
-            TextEmbeddingResult result = textEmbedding.call(param);
-
-            if (result.getOutput() != null &&
-                    result.getOutput().getEmbeddings() != null &&
-                    !result.getOutput().getEmbeddings().isEmpty()) {
-
-                return result.getOutput().getEmbeddings().get(0).getEmbedding();
+            // 先从数据库中获取文档信息
+            Optional<KnowledgeBase> knowledgeBaseOpt = knowledgeBaseRepository.findById(documentId);
+            if (knowledgeBaseOpt.isEmpty()) {
+                logger.warn("文档不存在，ID: {}", documentId);
+                return false;
             }
 
-            logger.error("文本向量化返回空结果");
-            return new ArrayList<>();
+            KnowledgeBase knowledgeBase = knowledgeBaseOpt.get();
+
+            // 调用百炼API删除文档
+            Map<String, Object> deleteRequest = new HashMap<>();
+            deleteRequest.put("IndexId", indexId);
+            deleteRequest.put("DocumentId", knowledgeBase.getAliyunFileId());
+
+            Map<String, Object> deleteResponse = callBailianAPI("DeleteIndexDocument", deleteRequest);
+
+            boolean success = (deleteResponse != null && deleteResponse.containsKey("Success") &&
+                              Boolean.TRUE.equals(deleteResponse.get("Success")));
+
+            if (success) {
+                // 如果百炼删除成功，从数据库中删除记录
+                knowledgeBaseRepository.deleteById(documentId);
+                logger.info("文档删除成功，ID: {}", documentId);
+            } else {
+                logger.warn("百炼API删除失败，ID: {}", documentId);
+            }
+
+            return success;
 
         } catch (Exception e) {
-            logger.error("文本向量化失败", e);
+            logger.error("删除知识库文档失败，ID: {}", documentId, e);
+            return false;
+        }
+    }
+
+    @Override
+    public List<Map<String, Object>> listDocuments(Long characterId) {
+        try {
+            logger.debug("获取角色 {} 的文档列表", characterId);
+
+            List<KnowledgeBase> knowledgeBases = knowledgeBaseRepository.findByCharacterIdOrderByCreatedAtDesc(characterId);
+            List<Map<String, Object>> documents = new ArrayList<>();
+
+            for (KnowledgeBase kb : knowledgeBases) {
+                Map<String, Object> doc = new HashMap<>();
+                doc.put("id", kb.getId());
+                doc.put("characterId", kb.getCharacterId());
+                doc.put("aliyunFileId", kb.getAliyunFileId());
+                doc.put("fileName", kb.getFileName());
+                doc.put("fileSize", kb.getFileSize());
+                doc.put("fileMd5", kb.getFileMd5());
+                doc.put("status", kb.getStatus());
+                doc.put("jobId", kb.getJobId());
+                doc.put("errorMessage", kb.getErrorMessage());
+                doc.put("createdAt", kb.getCreatedAt());
+                doc.put("updatedAt", kb.getUpdatedAt());
+                documents.add(doc);
+            }
+
+            logger.info("获取到角色 {} 的 {} 个文档", characterId, documents.size());
+            return documents;
+
+        } catch (Exception e) {
+            logger.error("获取文档列表失败，角色ID: {}", characterId, e);
             return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 调用百炼API
+     *
+     * @param action API动作名称
+     * @param params 请求参数
+     * @return 响应结果
+     */
+    private Map<String, Object> callBailianAPI(String action, Map<String, Object> params) {
+        try {
+            Map<String, Object> request = new HashMap<>();
+            request.put("Action", action);
+            request.put("Version", BAILIAN_API_VERSION);
+            request.put("WorkspaceId", workspaceId);
+            request.putAll(params);
+
+            // 构建请求体
+            JSONObject jsonRequest = new JSONObject(request);
+            String jsonBody = jsonRequest.toString();
+
+            RequestBody requestBody = RequestBody.create(jsonBody, MediaType.parse("application/json"));
+
+            Request httpRequest = new Request.Builder()
+                    .url(BAILIAN_API_BASE)
+                    .addHeader("Authorization", "Bearer " + apiKey)
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("X-DashScope-SSE", "disable")
+                    .post(requestBody)
+                    .build();
+
+            try (Response response = httpClient.newCall(httpRequest).execute()) {
+                if (!response.isSuccessful()) {
+                    String errorBody = response.body() != null ? response.body().string() : "";
+                    throw new RuntimeException("API调用失败，HTTP状态码: " + response.code() + ", 响应: " + errorBody);
+                }
+
+                String responseBody = response.body().string();
+                JSONObject jsonResponse = new JSONObject(responseBody);
+                return jsonResponse.toMap();
+            }
+
+        } catch (Exception e) {
+            logger.error("调用百炼API失败，Action: {}", action, e);
+            throw new RuntimeException("API调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 计算文件MD5哈希值
+     *
+     * @param inputStream 文件输入流
+     * @return MD5哈希值字符串
+     */
+    private String calculateMD5(InputStream inputStream) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("MD5");
+        byte[] buffer = new byte[8192];
+        int read;
+
+        while ((read = inputStream.read(buffer)) != -1) {
+            md.update(buffer, 0, read);
+        }
+
+        byte[] digest = md.digest();
+        StringBuilder sb = new StringBuilder();
+        for (byte b : digest) {
+            sb.append(String.format("%02x", b));
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 上传文件到指定URL
+     *
+     * @param uploadUrl     上传URL
+     * @param inputStream   文件输入流
+     * @param fileName      文件名
+     */
+    private void uploadFileToUrl(String uploadUrl, InputStream inputStream, String fileName) throws IOException {
+        RequestBody requestBody = new RequestBody() {
+            @Override
+            public MediaType contentType() {
+                return MediaType.parse("application/octet-stream");
+            }
+
+            @Override
+            public void writeTo(okio.BufferedSink sink) throws IOException {
+                okio.Source source = okio.Okio.source(inputStream);
+                sink.writeAll(source);
+                source.close();
+            }
+
+            @Override
+            public long contentLength() {
+                return -1; // Unknown length
+            }
+        };
+
+        Request request = new Request.Builder()
+                .url(uploadUrl)
+                .addHeader("X-Bailian-Extra", fileName)
+                .put(requestBody)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String errorBody = response.body() != null ? response.body().string() : "";
+                throw new RuntimeException("文件上传失败，HTTP状态码: " + response.code() + ", 响应: " + errorBody);
+            }
         }
     }
 }
