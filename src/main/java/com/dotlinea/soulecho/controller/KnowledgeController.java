@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -115,30 +116,18 @@ public class KnowledgeController {
      * @param characterId 角色ID
      * @return 文档列表
      */
-    @GetMapping("/documents")
-    public ResponseEntity<Map<String, Object>> listDocuments(@RequestParam("characterId") Long characterId) {
+    @GetMapping
+    public ResponseEntity<List<Map<String, Object>>> listDocuments(@RequestParam("characterId") Long characterId) {
         try {
             logger.debug("获取角色 {} 的文档列表", characterId);
 
             List<Map<String, Object>> documents = knowledgeService.listDocuments(characterId);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("characterId", characterId);
-            response.put("documents", documents);
-            response.put("count", documents.size());
-            response.put("status", "SUCCESS");
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(documents);
 
         } catch (Exception e) {
             logger.error("获取文档列表失败，角色ID: {}", characterId, e);
-
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "获取文档列表失败");
-            errorResponse.put("message", e.getMessage());
-            errorResponse.put("status", "ERROR");
-
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
@@ -148,31 +137,69 @@ public class KnowledgeController {
      * 根据文档ID删除知识库中的文件
      * </p>
      *
-     * @param documentId 文档ID
+     * @param id 文档ID
      * @return 删除结果
      */
-    @DeleteMapping("/documents/{documentId}")
-    public ResponseEntity<Map<String, Object>> deleteKnowledgeDocument(@PathVariable Long documentId) {
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteKnowledgeDocument(@PathVariable Long id) {
         try {
-            logger.info("删除知识库文档，ID: {}", documentId);
+            logger.info("删除知识库文档，ID: {}", id);
 
-            boolean success = knowledgeService.deleteDocument(documentId);
+            boolean success = knowledgeService.deleteDocument(id);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("documentId", documentId);
-            response.put("success", success);
-            response.put("status", success ? "SUCCESS" : "FAILED");
-            response.put("message", success ? "文档删除成功" : "文档删除失败");
-
-            return success ? ResponseEntity.ok(response) : ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+            if (success) {
+                // 204 NO CONTENT
+                return ResponseEntity.noContent().build();
+            } else {
+                return ResponseEntity.notFound().build();
+            }
 
         } catch (Exception e) {
-            logger.error("删除知识库文档失败，ID: {}", documentId, e);
+            logger.error("删除知识库文档失败，ID: {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 调试用知识检索接口
+     * <p>
+     * 供开发者在APIFox中调试RAG效果，前端不需要展示此功能
+     * </p>
+     *
+     * @param request 检索请求
+     * @return 检索结果
+     */
+    @PostMapping("/debug/search")
+    public ResponseEntity<Map<String, Object>> debugSearch(@RequestBody Map<String, Object> request) {
+        try {
+            Long characterId = Long.valueOf(request.get("characterId").toString());
+            String query = request.get("query").toString();
+
+            logger.debug("调试搜索知识库，角色ID: {}, 查询: {}", characterId, query);
+
+            List<String> results = knowledgeService.searchByCharacterId(characterId, query);
+
+            Map<String, Object> response = new HashMap<>();
+            List<Map<String, Object>> matches = new ArrayList<>();
+
+            for (int i = 0; i < results.size(); i++) {
+                Map<String, Object> match = new HashMap<>();
+                match.put("content", results.get(i));
+                // 模拟相关性得分
+                match.put("score", 1.0 - (i * 0.1));
+                matches.add(match);
+            }
+
+            response.put("matches", matches);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("调试搜索失败", e);
 
             Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "删除失败");
+            errorResponse.put("error", "搜索失败");
             errorResponse.put("message", e.getMessage());
-            errorResponse.put("status", "ERROR");
 
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }

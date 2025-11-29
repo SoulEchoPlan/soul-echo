@@ -202,11 +202,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 // 构造返回结果
                 Map<String, Object> result = new HashMap<>();
                 result.put("id", knowledgeBase.getId());
-                result.put("fileId", aliyunFileId);
+                result.put("aliyunFileId", aliyunFileId);
                 result.put("characterId", characterId);
                 result.put("fileName", file.getOriginalFilename());
                 result.put("status", "INDEXING"); // 索引中
-                result.put("message", "文件上传成功，正在进行索引处理");
                 result.put("uploadTime", knowledgeBase.getCreatedAt());
 
                 logger.info("文件上传成功，FileId: {}, 状态: INDEXING", aliyunFileId);
@@ -320,16 +319,29 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             for (KnowledgeBase kb : knowledgeBases) {
                 Map<String, Object> doc = new HashMap<>();
                 doc.put("id", kb.getId());
-                doc.put("characterId", kb.getCharacterId());
-                doc.put("aliyunFileId", kb.getAliyunFileId());
                 doc.put("fileName", kb.getFileName());
-                doc.put("fileSize", kb.getFileSize());
-                doc.put("fileMd5", kb.getFileMd5());
-                doc.put("status", kb.getStatus());
-                doc.put("jobId", kb.getJobId());
-                doc.put("errorMessage", kb.getErrorMessage());
-                doc.put("createdAt", kb.getCreatedAt());
-                doc.put("updatedAt", kb.getUpdatedAt());
+
+                // 格式化文件大小显示
+                if (kb.getFileSize() != null) {
+                    long size = kb.getFileSize();
+                    if (size >= 1024 * 1024) {
+                        doc.put("fileSize", String.format("%.1fMB", size / (1024.0 * 1024.0)));
+                    } else if (size >= 1024) {
+                        doc.put("fileSize", String.format("%.1fKB", size / 1024.0));
+                    } else {
+                        doc.put("fileSize", size + "B");
+                    }
+                } else {
+                    doc.put("fileSize", "未知");
+                }
+
+                // 状态映射：INDEXING -> INDEXING, ACTIVE -> ACTIVE, FAILED -> FAILED
+                String status = kb.getStatus();
+                if ("COMPLETED".equals(status)) {
+                    status = "ACTIVE"; // 文档期望ACTIVE状态
+                }
+                doc.put("status", status);
+                doc.put("uploadTime", kb.getCreatedAt());
                 documents.add(doc);
             }
 
