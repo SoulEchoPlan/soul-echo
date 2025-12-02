@@ -130,24 +130,16 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new RuntimeException("上传文件不能为空");
         }
 
+        String aliyunFileId = null;
+        String jobId = null;
+
         try {
             logger.info("开始上传文件到百炼知识库，角色ID: {}, 文件名: {}", characterId, file.getOriginalFilename());
 
-            // 先在数据库中创建记录，状态为UPLOADING
-            KnowledgeBase knowledgeBase = KnowledgeBase.builder()
-                    .characterId(characterId)
-                    .fileName(file.getOriginalFilename())
-                    .fileSize(file.getSize())
-                    .status("UPLOADING")
-                    .build();
-
-            knowledgeBase = knowledgeBaseRepository.save(knowledgeBase);
-
+            // 第一步：申请文件上传租约并上传文件，获取 aliyunFileId
             try {
-                // 第一步：申请文件上传租约
+                // 1. 申请文件上传租约
                 String md5Hash = calculateMD5(file.getInputStream());
-                knowledgeBase.setFileMd5(md5Hash);
-
                 long fileSize = file.getSize();
 
                 Map<String, Object> leaseRequest = new HashMap<>();
@@ -164,10 +156,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 String uploadUrl = (String) leaseResponse.get("UploadUrl");
                 String fileId = (String) leaseResponse.get("FileId");
 
-                // 第二步：上传文件到提供的URL
+                // 2. 上传文件到提供的URL
                 uploadFileToUrl(uploadUrl, file.getInputStream(), file.getOriginalFilename());
 
-                // 第三步：通知百炼文件已上传完成
+                // 3. 通知百炼文件已上传完成
                 Map<String, Object> addFileRequest = new HashMap<>();
                 addFileRequest.put("FileId", fileId);
 
@@ -177,10 +169,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     throw new RuntimeException("文件添加通知失败");
                 }
 
-                String aliyunFileId = (String) addFileResponse.get("AliyunFileId");
-                knowledgeBase.setAliyunFileId(aliyunFileId);
+                aliyunFileId = (String) addFileResponse.get("AliyunFileId");
 
-                // 第四步：提交索引任务，将文件添加到知识库索引
+                // 4. 提交索引任务，将文件添加到知识库索引
                 Map<String, Object> indexRequest = new HashMap<>();
                 indexRequest.put("IndexId", indexId);
                 List<String> fileIds = Arrays.asList(aliyunFileId);
@@ -192,32 +183,41 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     throw new RuntimeException("提交索引任务失败");
                 }
 
-                String jobId = (String) indexResponse.get("JobId");
-                knowledgeBase.setJobId(jobId);
-                knowledgeBase.setStatus("INDEXING");
+                jobId = (String) indexResponse.get("JobId");
 
-                // 保存更新后的记录
-                knowledgeBase = knowledgeBaseRepository.save(knowledgeBase);
-
-                // 构造返回结果
-                Map<String, Object> result = new HashMap<>();
-                result.put("id", knowledgeBase.getId());
-                result.put("aliyunFileId", aliyunFileId);
-                result.put("characterId", characterId);
-                result.put("fileName", file.getOriginalFilename());
-                result.put("status", "INDEXING"); // 索引中
-                result.put("uploadTime", knowledgeBase.getCreatedAt());
-
-                logger.info("文件上传成功，FileId: {}, 状态: INDEXING", aliyunFileId);
-                return result;
+                logger.info("文件上传成功，AliyunFileId: {}, JobId: {}", aliyunFileId, jobId);
 
             } catch (Exception e) {
-                // 如果上传过程中出现错误，更新数据库记录状态
-                knowledgeBase.setStatus("FAILED");
-                knowledgeBase.setErrorMessage(e.getMessage());
-                knowledgeBaseRepository.save(knowledgeBase);
-                throw e;
+                logger.error("文件上传到百炼失败", e);
+                throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
             }
+
+            // 第二步：构建完整的 KnowledgeBase 实体（包含已获取的 aliyunFileId）
+            KnowledgeBase knowledgeBase = KnowledgeBase.builder()
+                    .characterId(characterId)
+                    .fileName(file.getOriginalFilename())
+                    .fileSize(file.getSize())
+                    .fileMd5(calculateMD5(file.getInputStream()))
+                    .aliyunFileId(aliyunFileId)
+                    .jobId(jobId)
+                    // 索引中
+                    .status("INDEXING")
+                    .build();
+
+            // 第三步：一次性保存到数据库
+            knowledgeBase = knowledgeBaseRepository.save(knowledgeBase);
+
+            // 构造返回结果
+            Map<String, Object> result = new HashMap<>();
+            result.put("id", knowledgeBase.getId());
+            result.put("aliyunFileId", aliyunFileId);
+            result.put("characterId", characterId);
+            result.put("fileName", file.getOriginalFilename());
+            result.put("status", "INDEXING"); // 索引中
+            result.put("uploadTime", knowledgeBase.getCreatedAt());
+
+            logger.info("知识库记录保存成功，ID: {}, 状态: INDEXING", knowledgeBase.getId());
+            return result;
 
         } catch (Exception e) {
             logger.error("上传文件到百炼知识库失败", e);
