@@ -1,6 +1,9 @@
 package com.dotlinea.soulecho.service.impl;
 
-import org.json.JSONObject;
+import com.aliyun.bailian20231229.Client;
+import com.aliyun.bailian20231229.models.*;
+import com.aliyun.teaopenapi.models.Config;
+import com.aliyun.teautil.models.RuntimeOptions;
 import com.dotlinea.soulecho.service.KnowledgeService;
 import com.dotlinea.soulecho.entity.KnowledgeBase;
 import com.dotlinea.soulecho.repository.KnowledgeBaseRepository;
@@ -22,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * 知识库服务实现类
  * <p>
- * 基于阿里云百炼托管知识库服务，使用DashScope SDK实现
+ * 基于阿里云百炼托管知识库服务，使用官方SDK实现
  * 支持文件上传、解析和智能检索
  * </p>
  *
@@ -35,30 +38,39 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeServiceImpl.class);
 
+    @Value("${aliyun.accessKeyId}")
+    private String accessKeyId;
+
+    @Value("${aliyun.accessKeySecret}")
+    private String accessKeySecret;
+
     @Value("${bailian.workspace.id}")
     private String workspaceId;
 
     @Value("${bailian.knowledge.index.id}")
     private String indexId;
 
-    @Value("${bailian.api.key}")
-    private String apiKey;
-
+    private Client bailianClient;
     private OkHttpClient httpClient;
 
     @Autowired
-    private KnowledgeBaseRepository knowledgeBaseRepository;
-
-    // 百炼API端点
-    private static final String BAILIAN_API_BASE = "https://bailian.cn-beijing.aliyuncs.com";
-    private static final String BAILIAN_API_VERSION = "2023-12-29";
+    private KnowledgeBaseRepository repository;
 
     @PostConstruct
     public void init() {
         try {
             logger.info("初始化百炼知识库服务...");
 
-            // 初始化HTTP客户端
+            // 配置阿里云认证
+            Config config = new Config()
+                    .setAccessKeyId(accessKeyId)
+                    .setAccessKeySecret(accessKeySecret)
+                    .setEndpoint("bailian.cn-beijing.aliyuncs.com");;
+
+            // 创建百炼客户端
+            bailianClient = new Client(config);
+
+            // 初始化HTTP客户端（用于文件上传）
             httpClient = new OkHttpClient.Builder()
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(60, TimeUnit.SECONDS)
@@ -71,47 +83,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new RuntimeException("知识库服务初始化异常", e);
         }
     }
-
-    /**
-     * 向知识库中添加文本文档
-     *
-     * @param characterName 角色名称，用于标识文档所属的角色
-     * @param text 文档内容文本，不能为空或空白字符串
-     */
-    @Override
-    public void addDocument(String characterName, String text) {
-        if (text == null || text.trim().isEmpty()) {
-            logger.warn("尝试添加空文档到知识库");
-            return;
-        }
-
-        try {
-            logger.info("开始为角色 {} 添加文本文档到知识库", characterName);
-
-            // 构造调用百炼API的请求参数
-            Map<String, Object> request = new HashMap<>();
-            request.put("IndexId", indexId);
-            request.put("Content", text);
-            request.put("CharacterName", characterName);
-            request.put("DocumentName", characterName + "_" + System.currentTimeMillis());
-
-            // 调用百炼的文本文档添加API接口
-            Map<String, Object> response = callBailianAPI("AddTextDocument", request);
-
-            // 处理API响应结果
-            if (response != null && response.containsKey("DocumentId")) {
-                logger.info("成功为角色 {} 添加文本文档到知识库，DocumentId: {}",
-                    characterName, response.get("DocumentId"));
-            } else {
-                logger.error("为角色 {} 添加文本文档失败，响应异常", characterName);
-            }
-
-        } catch (Exception e) {
-            logger.error("为角色 {} 添加文本文档时发生异常", characterName, e);
-            throw new RuntimeException("添加文本文档失败: " + e.getMessage(), e);
-        }
-    }
-
 
     @Override
     public List<String> search(String characterName, String query) {
@@ -136,56 +107,73 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             logger.info("开始上传文件到百炼知识库，角色ID: {}, 文件名: {}", characterId, file.getOriginalFilename());
 
-            // 第一步：申请文件上传租约并上传文件，获取 aliyunFileId
+            // 第一步：使用SDK获取文件上传租约并上传文件
             try {
                 // 1. 申请文件上传租约
                 String md5Hash = calculateMD5(file.getInputStream());
                 long fileSize = file.getSize();
 
-                Map<String, Object> leaseRequest = new HashMap<>();
-                leaseRequest.put("FileName", file.getOriginalFilename());
-                leaseRequest.put("FileMd5", md5Hash);
-                leaseRequest.put("FileSize", fileSize);
+                ApplyFileUploadLeaseRequest leaseRequest = new ApplyFileUploadLeaseRequest()
+                        .setFileName(file.getOriginalFilename())
+                        .setMd5(md5Hash)
+                        .setSizeInBytes(String.valueOf(fileSize));
 
-                Map<String, Object> leaseResponse = callBailianAPI("ApplyFileUploadLease", leaseRequest);
+                ApplyFileUploadLeaseResponse leaseResponse = bailianClient.applyFileUploadLeaseWithOptions("default", workspaceId, leaseRequest, new HashMap<>(), new RuntimeOptions());
 
-                if (leaseResponse == null || !leaseResponse.containsKey("UploadUrl")) {
+                if (leaseResponse == null || leaseResponse.getBody() == null || leaseResponse.getBody().getData() == null ||
+                    leaseResponse.getBody().getData().getParam() == null || leaseResponse.getBody().getData().getParam().getUrl() == null) {
                     throw new RuntimeException("申请文件上传租约失败");
                 }
 
-                String uploadUrl = (String) leaseResponse.get("UploadUrl");
-                String fileId = (String) leaseResponse.get("FileId");
+                String uploadUrl = leaseResponse.getBody().getData().getParam().getUrl();
+                String leaseId = leaseResponse.getBody().getData().getFileUploadLeaseId();
+                // Headers 是Object类型，需要转换为Map
+                Object headersObj = leaseResponse.getBody().getData().getParam().getHeaders();
+                Map<String, String> uploadHeaders = new HashMap<>();
+                if (headersObj instanceof Map) {
+                    Map<?, ?> rawHeaders = (Map<?, ?>) headersObj;
+                    for (Map.Entry<?, ?> entry : rawHeaders.entrySet()) {
+                        if (entry.getKey() instanceof String && entry.getValue() instanceof String) {
+                            uploadHeaders.put((String) entry.getKey(), (String) entry.getValue());
+                        }
+                    }
+                }
+
+                logger.info("获取文件上传租约成功，LeaseId: {}, UploadUrl: {}", leaseId, uploadUrl);
 
                 // 2. 上传文件到提供的URL
-                uploadFileToUrl(uploadUrl, file.getInputStream(), file.getOriginalFilename());
+                uploadFileToUrl(uploadUrl, file.getInputStream(), file.getOriginalFilename(), uploadHeaders);
+
+                logger.info("文件上传成功，LeaseId: {}", leaseId);
 
                 // 3. 通知百炼文件已上传完成
-                Map<String, Object> addFileRequest = new HashMap<>();
-                addFileRequest.put("FileId", fileId);
+                AddFileRequest addFileRequest = new AddFileRequest()
+                        .setLeaseId(leaseId);
 
-                Map<String, Object> addFileResponse = callBailianAPI("AddFile", addFileRequest);
+                AddFileResponse addFileResponse = bailianClient.addFileWithOptions(workspaceId, addFileRequest, new HashMap<>(), new RuntimeOptions());
 
-                if (addFileResponse == null || !addFileResponse.containsKey("AliyunFileId")) {
+                if (addFileResponse == null || addFileResponse.getBody() == null || addFileResponse.getBody().getData() == null ||
+                    addFileResponse.getBody().getData().getFileId() == null) {
                     throw new RuntimeException("文件添加通知失败");
                 }
 
-                aliyunFileId = (String) addFileResponse.get("AliyunFileId");
+                aliyunFileId = addFileResponse.getBody().getData().getFileId();
+                logger.info("文件注册成功，FileId: {}", aliyunFileId);
 
                 // 4. 提交索引任务，将文件添加到知识库索引
-                Map<String, Object> indexRequest = new HashMap<>();
-                indexRequest.put("IndexId", indexId);
-                List<String> fileIds = Arrays.asList(aliyunFileId);
-                indexRequest.put("FileIds", fileIds);
+                SubmitIndexAddDocumentsJobRequest indexRequest = new SubmitIndexAddDocumentsJobRequest()
+                        .setIndexId(indexId)
+                        .setDocumentIds(Arrays.asList(aliyunFileId));
 
-                Map<String, Object> indexResponse = callBailianAPI("SubmitIndexAddDocumentsJob", indexRequest);
+                SubmitIndexAddDocumentsJobResponse indexResponse = bailianClient.submitIndexAddDocumentsJobWithOptions(workspaceId, indexRequest, new HashMap<>(), new RuntimeOptions());
 
-                if (indexResponse == null || !indexResponse.containsKey("JobId")) {
+                if (indexResponse == null || indexResponse.getBody() == null || indexResponse.getBody().getData() == null ||
+                    indexResponse.getBody().getData().getId() == null) {
                     throw new RuntimeException("提交索引任务失败");
                 }
 
-                jobId = (String) indexResponse.get("JobId");
-
-                logger.info("文件上传成功，AliyunFileId: {}, JobId: {}", aliyunFileId, jobId);
+                jobId = indexResponse.getBody().getData().getId();
+                logger.info("索引任务提交成功，JobId: {}", jobId);
 
             } catch (Exception e) {
                 logger.error("文件上传到百炼失败", e);
@@ -200,12 +188,11 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     .fileMd5(calculateMD5(file.getInputStream()))
                     .aliyunFileId(aliyunFileId)
                     .jobId(jobId)
-                    // 索引中
                     .status("INDEXING")
                     .build();
 
             // 第三步：一次性保存到数据库
-            knowledgeBase = knowledgeBaseRepository.save(knowledgeBase);
+            knowledgeBase = repository.save(knowledgeBase);
 
             // 构造返回结果
             Map<String, Object> result = new HashMap<>();
@@ -213,7 +200,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             result.put("aliyunFileId", aliyunFileId);
             result.put("characterId", characterId);
             result.put("fileName", file.getOriginalFilename());
-            result.put("status", "INDEXING"); // 索引中
+            result.put("status", "INDEXING");
             result.put("uploadTime", knowledgeBase.getCreatedAt());
 
             logger.info("知识库记录保存成功，ID: {}, 状态: INDEXING", knowledgeBase.getId());
@@ -235,27 +222,37 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             logger.debug("检索知识库，角色ID: {}, 查询: {}", characterId, query);
 
-            Map<String, Object> retrieveRequest = new HashMap<>();
-            retrieveRequest.put("IndexId", indexId);
-            retrieveRequest.put("Query", query);
-            retrieveRequest.put("TopK", 5);
+            // 使用SDK的Retrieve接口
+            RetrieveRequest retrieveRequest = new RetrieveRequest()
+                    .setIndexId(indexId)
+                    .setQuery(query)
+                    .setDenseSimilarityTopK(5);
 
-            Map<String, Object> retrieveResponse = callBailianAPI("Retrieve", retrieveRequest);
+            RetrieveResponse retrieveResponse = bailianClient.retrieveWithOptions(workspaceId, retrieveRequest, new HashMap<>(), new RuntimeOptions());
 
-            if (retrieveResponse == null || !retrieveResponse.containsKey("Results")) {
+            if (retrieveResponse == null || retrieveResponse.getBody() == null || retrieveResponse.getBody().getData() == null || retrieveResponse.getBody().getData().getNodes() == null) {
                 logger.warn("检索结果为空");
                 return new ArrayList<>();
             }
 
-            List<Map<String, Object>> results = (List<Map<String, Object>>) retrieveResponse.get("Results");
+            // 根据SDK实际结构获取结果
+            List<?> nodes = retrieveResponse.getBody().getData().getNodes();
             List<String> knowledgeChunks = new ArrayList<>();
 
-            if (results != null) {
-                for (Map<String, Object> result : results) {
-                    String text = (String) result.get("Text");
-                    if (text != null && !text.isEmpty()) {
-                        knowledgeChunks.add(text);
+            if (nodes != null) {
+                for (Object nodeObj : nodes) {
+                    // 尝试将节点转换为Map来获取text字段
+                    if (nodeObj instanceof Map) {
+                        Map<?, ?> node = (Map<?, ?>) nodeObj;
+                        Object textObj = node.get("text");
+                        if (textObj instanceof String) {
+                            String text = (String) textObj;
+                            if (text != null && !text.isEmpty()) {
+                                knowledgeChunks.add(text);
+                            }
+                        }
                     }
+                    // TODO: 找到正确的Node类型后替换这个临时解决方案
                 }
             }
 
@@ -274,7 +271,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             logger.info("删除知识库文档，ID: {}", documentId);
 
             // 先从数据库中获取文档信息
-            Optional<KnowledgeBase> knowledgeBaseOpt = knowledgeBaseRepository.findById(documentId);
+            Optional<KnowledgeBase> knowledgeBaseOpt = repository.findById(documentId);
             if (knowledgeBaseOpt.isEmpty()) {
                 logger.warn("文档不存在，ID: {}", documentId);
                 return false;
@@ -282,19 +279,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
             KnowledgeBase knowledgeBase = knowledgeBaseOpt.get();
 
-            // 调用百炼API删除文档
-            Map<String, Object> deleteRequest = new HashMap<>();
-            deleteRequest.put("IndexId", indexId);
-            deleteRequest.put("DocumentId", knowledgeBase.getAliyunFileId());
+            // 使用SDK删除文档
+            DeleteIndexDocumentRequest deleteRequest = new DeleteIndexDocumentRequest()
+                    .setIndexId(indexId)
+                    .setDocumentIds(Arrays.asList(knowledgeBase.getAliyunFileId()));
 
-            Map<String, Object> deleteResponse = callBailianAPI("DeleteIndexDocument", deleteRequest);
+            DeleteIndexDocumentResponse deleteResponse = bailianClient.deleteIndexDocumentWithOptions(workspaceId, deleteRequest, new HashMap<>(), new RuntimeOptions());
 
-            boolean success = (deleteResponse != null && deleteResponse.containsKey("Success") &&
-                              Boolean.TRUE.equals(deleteResponse.get("Success")));
+            boolean success = (deleteResponse != null && deleteResponse.getBody() != null &&
+                              deleteResponse.getBody().getSuccess() != null &&
+                              deleteResponse.getBody().getSuccess());
 
             if (success) {
                 // 如果百炼删除成功，从数据库中删除记录
-                knowledgeBaseRepository.deleteById(documentId);
+                repository.deleteById(documentId);
                 logger.info("文档删除成功，ID: {}", documentId);
             } else {
                 logger.warn("百炼API删除失败，ID: {}", documentId);
@@ -313,7 +311,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             logger.debug("获取角色 {} 的文档列表", characterId);
 
-            List<KnowledgeBase> knowledgeBases = knowledgeBaseRepository.findByCharacterIdOrderByCreatedAtDesc(characterId);
+            List<KnowledgeBase> knowledgeBases = repository.findByCharacterIdOrderByCreatedAtDesc(characterId);
             List<Map<String, Object>> documents = new ArrayList<>();
 
             for (KnowledgeBase kb : knowledgeBases) {
@@ -355,52 +353,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     /**
-     * 调用百炼API
-     *
-     * @param action API动作名称
-     * @param params 请求参数
-     * @return 响应结果
-     */
-    private Map<String, Object> callBailianAPI(String action, Map<String, Object> params) {
-        try {
-            Map<String, Object> request = new HashMap<>();
-            request.put("Action", action);
-            request.put("Version", BAILIAN_API_VERSION);
-            request.put("WorkspaceId", workspaceId);
-            request.putAll(params);
-
-            // 构建请求体
-            JSONObject jsonRequest = new JSONObject(request);
-            String jsonBody = jsonRequest.toString();
-
-            RequestBody requestBody = RequestBody.create(jsonBody, MediaType.parse("application/json"));
-
-            Request httpRequest = new Request.Builder()
-                    .url(BAILIAN_API_BASE)
-                    .addHeader("Authorization", "Bearer " + apiKey)
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("X-DashScope-SSE", "disable")
-                    .post(requestBody)
-                    .build();
-
-            try (Response response = httpClient.newCall(httpRequest).execute()) {
-                if (!response.isSuccessful()) {
-                    String errorBody = response.body() != null ? response.body().string() : "";
-                    throw new RuntimeException("API调用失败，HTTP状态码: " + response.code() + ", 响应: " + errorBody);
-                }
-
-                String responseBody = response.body().string();
-                JSONObject jsonResponse = new JSONObject(responseBody);
-                return jsonResponse.toMap();
-            }
-
-        } catch (Exception e) {
-            logger.error("调用百炼API失败，Action: {}", action, e);
-            throw new RuntimeException("API调用失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
      * 计算文件MD5哈希值
      *
      * @param inputStream 文件输入流
@@ -430,8 +382,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
      * @param uploadUrl     上传URL
      * @param inputStream   文件输入流
      * @param fileName      文件名
+     * @param headers       SDK返回的请求头
      */
-    private void uploadFileToUrl(String uploadUrl, InputStream inputStream, String fileName) throws IOException {
+    private void uploadFileToUrl(String uploadUrl, InputStream inputStream, String fileName, Map<String, String> headers) throws IOException {
         RequestBody requestBody = new RequestBody() {
             @Override
             public MediaType contentType() {
@@ -451,11 +404,18 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             }
         };
 
-        Request request = new Request.Builder()
+        Request.Builder requestBuilder = new Request.Builder()
                 .url(uploadUrl)
-                .addHeader("X-Bailian-Extra", fileName)
-                .put(requestBody)
-                .build();
+                .put(requestBody);
+
+        // 添加SDK返回的headers
+        if (headers != null) {
+            for (Map.Entry<String, String> header : headers.entrySet()) {
+                requestBuilder.addHeader(header.getKey(), header.getValue());
+            }
+        }
+
+        Request request = requestBuilder.build();
 
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {

@@ -17,17 +17,6 @@ import java.util.Map;
 public interface KnowledgeService {
 
     /**
-     * 添加文档到知识库（文本方式）
-     * <p>
-     * 将文本资料与特定角色关联，并存入知识库
-     * </p>
-     *
-     * @param characterName 角色名称
-     * @param text          文本内容
-     */
-    void addDocument(String characterName, String text);
-
-    /**
      * 从知识库中检索相关文档
      * <p>
      * 根据用户查询，检索与角色相关的知识片段
