@@ -1,6 +1,7 @@
 package com.dotlinea.soulecho.client.impl;
 
 import com.dotlinea.soulecho.client.LLMClient;
+import com.dotlinea.soulecho.service.KnowledgeService;
 import com.alibaba.dashscope.aigc.generation.Generation;
 import com.alibaba.dashscope.aigc.generation.GenerationParam;
 import com.alibaba.dashscope.aigc.generation.GenerationResult;
@@ -12,6 +13,7 @@ import com.alibaba.dashscope.exception.NoApiKeyException;
 import io.reactivex.Flowable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -43,6 +45,9 @@ public class LLMClientImpl implements LLMClient {
 
     @Value("${llm.temperature:0.8}")
     private Float temperature;
+
+    @Autowired
+    private KnowledgeService knowledgeService;
 
     private Generation generation;
 
@@ -97,6 +102,48 @@ public class LLMClientImpl implements LLMClient {
     }
 
     /**
+     * LLM流式对话处理（支持知识库增强）
+     * @param personaPrompt 角色描述
+     * @param history 历史对话
+     * @param newText 新输入的文本
+     * @param characterName 角色名称（用于知识库检索）
+     * @param chunkConsumer 文本块消费者，每收到一块文本就会被调用
+     */
+    @Override
+    public void chatStream(String personaPrompt, List<String> history, String newText, String characterName, Consumer<String> chunkConsumer) {
+        if (newText == null || newText.trim().isEmpty()) {
+            logger.warn("接收到空的用户输入");
+            return;
+        }
+
+        if (chunkConsumer == null) {
+            logger.warn("文本块消费者为空");
+            return;
+        }
+
+        try {
+            // 从知识库检索相关信息
+            List<String> knowledgeChunks = null;
+            if (characterName != null && !characterName.trim().isEmpty()) {
+                try {
+                    knowledgeChunks = knowledgeService.search(characterName, newText);
+                    logger.debug("为角色 {} 检索到 {} 条相关知识片段", characterName,
+                        knowledgeChunks != null ? knowledgeChunks.size() : 0);
+                } catch (Exception e) {
+                    logger.warn("知识库检索失败，使用普通模式继续对话", e);
+                    knowledgeChunks = null;
+                }
+            }
+
+            List<Message> messages = buildMessages(personaPrompt, history, newText, knowledgeChunks);
+            callAliyunLLMStream(messages, chunkConsumer);
+        } catch (Exception e) {
+            logger.error("LLM流式对话处理失败", e);
+            chunkConsumer.accept("抱歉，我现在无法回应您的消息，请稍后再试。");
+        }
+    }
+
+    /**
      * 构建消息列表
      * <p>
      * 该方法用于构建消息列表，将角色描述、历史对话和用户输入的文本构建成消息列表。
@@ -108,8 +155,26 @@ public class LLMClientImpl implements LLMClient {
      * @return 消息列表
      */
     private List<Message> buildMessages(String personaPrompt, List<String> history, String newText) {
+        return buildMessages(personaPrompt, history, newText, null);
+    }
+
+    /**
+     * 构建消息列表（支持知识库增强）
+     * <p>
+     * 该方法用于构建消息列表，将角色描述、历史对话、知识库信息和用户输入的文本构建成消息列表。
+     * 如果知识库片段不为空，会将其作为系统消息插入到对话中。
+     * </p>
+     *
+     * @param personaPrompt    角色描述
+     * @param history          历史对话
+     * @param newText          新输入的文本
+     * @param knowledgeChunks  知识库检索到的相关片段
+     * @return 消息列表
+     */
+    private List<Message> buildMessages(String personaPrompt, List<String> history, String newText, List<String> knowledgeChunks) {
         List<Message> messages = new ArrayList<>();
 
+        // 1. 首先添加角色描述
         if (personaPrompt != null && !personaPrompt.trim().isEmpty()) {
             messages.add(Message.builder()
                 .role(Role.SYSTEM.getValue())
@@ -117,6 +182,7 @@ public class LLMClientImpl implements LLMClient {
                 .build());
         }
 
+        // 2. 添加历史对话
         if (history != null && !history.isEmpty()) {
             boolean isUser = true;
             for (String historyItem : history) {
@@ -130,6 +196,26 @@ public class LLMClientImpl implements LLMClient {
             }
         }
 
+        // 3. 添加知识库信息（如果有）
+        if (knowledgeChunks != null && !knowledgeChunks.isEmpty()) {
+            StringBuilder knowledgeContext = new StringBuilder();
+            knowledgeContext.append("你必须参考以下信息来回答：\n\n");
+
+            for (int i = 0; i < knowledgeChunks.size(); i++) {
+                knowledgeContext.append(i + 1).append(". ").append(knowledgeChunks.get(i)).append("\n\n");
+            }
+
+            knowledgeContext.append("请基于以上信息，结合你的角色设定来回答用户的问题。");
+
+            messages.add(Message.builder()
+                .role(Role.SYSTEM.getValue())
+                .content(knowledgeContext.toString())
+                .build());
+
+            logger.debug("已添加知识库上下文，包含 {} 条相关信息", knowledgeChunks.size());
+        }
+
+        // 4. 添加用户当前问题
         messages.add(Message.builder()
             .role(Role.USER.getValue())
             .content(newText.trim())
