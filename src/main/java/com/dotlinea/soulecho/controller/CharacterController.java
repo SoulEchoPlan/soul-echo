@@ -28,7 +28,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/characters")
 @AllArgsConstructor
-@CrossOrigin(origins = "*")
 public class CharacterController {
 
     private static final Logger logger = LoggerFactory.getLogger(CharacterController.class);
