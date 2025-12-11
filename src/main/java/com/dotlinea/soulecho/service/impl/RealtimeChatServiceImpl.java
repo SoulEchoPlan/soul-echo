@@ -3,7 +3,10 @@ package com.dotlinea.soulecho.service.impl;
 import com.dotlinea.soulecho.client.ASRClient;
 import com.dotlinea.soulecho.client.LLMClient;
 import com.dotlinea.soulecho.client.TTSClient;
+import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
+import com.dotlinea.soulecho.factory.WebSocketMessageFactory;
 import com.dotlinea.soulecho.service.RealtimeChatService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +49,8 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
     private final ASRClient asrClient;
     private final LLMClient llmClient;
     private final TTSClient ttsClient;
+    private final ObjectMapper objectMapper;
+    private final WebSocketMessageFactory messageFactory;
 
     /**
      * 会话管理 - 存储每个会话的对话历史
@@ -199,9 +204,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
                     // 立即将完整句子送去TTS合成
                     try {
-                        ttsClient.synthesize(completeSentence, audioChunk -> {
-                            sendAudioResponse(session, audioChunk);
-                        });
+                        ttsClient.synthesize(completeSentence, audioChunk -> sendAudioResponse(session, audioChunk));
                     } catch (Exception e) {
                         logger.error("会话 {} TTS合成句子失败: {}", sessionId, completeSentence, e);
                     }
@@ -229,9 +232,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
                 // TTS合成剩余文本
                 try {
-                    ttsClient.synthesize(remainingText, audioChunk -> {
-                        sendAudioResponse(session, audioChunk);
-                    });
+                    ttsClient.synthesize(remainingText, audioChunk -> sendAudioResponse(session, audioChunk));
                 } catch (Exception e) {
                     logger.error("会话 {} TTS合成剩余文本失败", sessionId, e);
                 }
@@ -404,12 +405,18 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
     private void sendErrorMessage(WebSocketSession session, String errorMessage) {
         try {
             if (session.isOpen()) {
-                TextMessage message = new TextMessage(errorMessage);
+                // 使用安全的 WebSocketMessageDTO 进行序列化，防止 JSON 注入攻击
+                WebSocketMessageDTO messageDTO = messageFactory.createError(
+                    errorMessage, session.getId());
+                String jsonMessage = objectMapper.writeValueAsString(messageDTO);
+                TextMessage message = new TextMessage(jsonMessage);
                 session.sendMessage(message);
                 logger.debug("向会话 {} 发送错误消息: {}", session.getId(), errorMessage);
             }
         } catch (IOException e) {
             logger.error("向会话 {} 发送错误消息失败", session.getId(), e);
+        } catch (Exception e) {
+            logger.error("向会话 {} 序列化错误消息时发生异常", session.getId(), e);
         }
     }
 
@@ -421,15 +428,18 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
     private void sendUserTranscriptionEcho(WebSocketSession session, String transcribedText) {
         try {
             if (session.isOpen()) {
-                // 构建 JSON 格式的消息: {"type":"user-transcription", "content":"..."}
-                String jsonMessage = String.format("{\"type\":\"user-transcription\",\"content\":\"%s\"}",
-                    transcribedText.replace("\"", "\\\"").replace("\n", "\\n"));
+                // 使用安全的 WebSocketMessageDTO 进行序列化，防止 JSON 注入攻击
+                WebSocketMessageDTO messageDTO = messageFactory.createUserTranscription(
+                    transcribedText, session.getId());
+                String jsonMessage = objectMapper.writeValueAsString(messageDTO);
                 TextMessage message = new TextMessage(jsonMessage);
                 session.sendMessage(message);
                 logger.debug("向会话 {} 发送用户转写回显: {}", session.getId(), transcribedText);
             }
         } catch (IOException e) {
             logger.error("向会话 {} 发送用户转写回显失败", session.getId(), e);
+        } catch (Exception e) {
+            logger.error("向会话 {} 序列化用户转写消息时发生异常", session.getId(), e);
         }
     }
 
