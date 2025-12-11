@@ -1,6 +1,9 @@
 package com.dotlinea.soulecho.controller;
 
+import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
+import com.dotlinea.soulecho.factory.WebSocketMessageFactory;
 import com.dotlinea.soulecho.service.RealtimeChatService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
@@ -35,6 +38,8 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
     private static final String DEFAULT_PERSONA_PROMPT = "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
 
     private final RealtimeChatService chatService;
+    private final ObjectMapper objectMapper;
+    private final WebSocketMessageFactory messageFactory;
 
     /**
      * 当WebSocket连接建立时调用
@@ -193,7 +198,11 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
     private void sendErrorResponse(WebSocketSession session, String errorMessage) {
         try {
             if (session.isOpen()) {
-                TextMessage errorMsg = new TextMessage("{\"error\":\"" + errorMessage + "\"}");
+                // 使用安全的 WebSocketMessageDTO 进行序列化，防止 JSON 注入攻击
+                WebSocketMessageDTO messageDTO = messageFactory.createError(
+                    errorMessage, session.getId());
+                String jsonMessage = objectMapper.writeValueAsString(messageDTO);
+                TextMessage errorMsg = new TextMessage(jsonMessage);
                 session.sendMessage(errorMsg);
             }
         } catch (Exception e) {

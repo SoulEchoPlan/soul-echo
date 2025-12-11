@@ -28,7 +28,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/knowledge")
 @AllArgsConstructor
-@CrossOrigin(origins = "*")
 public class KnowledgeController {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeController.class);
