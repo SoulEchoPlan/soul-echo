@@ -149,6 +149,11 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 处理完整音频消息的核心流程: ASR -> LLM -> TTS (全链路异步化)
+     * <p>
+     * 使用非阻塞式分布式锁确保同一会话的消息顺序处理，避免并发冲突。
+     * 如果无法立即获取锁，则拒绝本次请求，避免阻塞线程池。
+     * </p>
+     *
      * @param session WebSocket会话
      * @param audioData 完整的音频数据
      */
@@ -156,8 +161,22 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         String sessionId = session.getId();
         RLock sessionLock = getSessionLock(sessionId);
 
-        // 获取分布式锁
-        sessionLock.lock();
+        // 尝试非阻塞获取分布式锁
+        boolean lockAcquired = false;
+        try {
+            lockAcquired = sessionLock.tryLock(100, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            logger.warn("会话 {} 尝试获取锁时被中断", sessionId);
+            Thread.currentThread().interrupt();
+            sendErrorMessage(session, "系统繁忙，请稍后重试");
+            return;
+        }
+
+        if (!lockAcquired) {
+            logger.warn("会话 {} 正在处理消息，拒绝本次请求", sessionId);
+            sendErrorMessage(session, "您的上一条消息正在处理中，请稍后再试");
+            return;
+        }
 
         try {
             // === 步骤1: 异步语音识别 (ASR) ===
@@ -170,7 +189,6 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                         // ASR成功回调
                         if (recognizedText == null || recognizedText.trim().isEmpty()) {
                             logger.debug("会话 {} 语音识别无结果", sessionId);
-                            sessionLock.unlock();
                             return;
                         }
 
@@ -250,23 +268,33 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                             }
 
                             logger.info("会话 {} 完整音频处理流程结束", sessionId);
-                        } finally {
-                            // 释放分布式锁
-                            sessionLock.unlock();
+                        } catch (Exception e) {
+                            logger.error("会话 {} LLM流式对话处理失败", sessionId, e);
+                            sendErrorMessage(session, "生成回复时发生错误，请稍后重试");
                         }
                     })
                     .exceptionally(throwable -> {
                         // 全链路异常处理
                         logger.error("会话 {} 异步处理音频消息时发生异常", sessionId, throwable);
                         sendErrorMessage(session, "处理您的消息时发生错误，请稍后重试。");
-                        sessionLock.unlock();
                         return null;
+                    })
+                    .whenComplete((result, throwable) -> {
+                        // 确保在任何情况下都释放锁
+                        if (sessionLock.isHeldByCurrentThread()) {
+                            sessionLock.unlock();
+                            logger.debug("会话 {} 释放分布式锁", sessionId);
+                        }
                     });
 
         } catch (Exception e) {
             logger.error("会话 {} 启动异步处理时发生异常", sessionId, e);
             sendErrorMessage(session, "处理您的消息时发生错误，请稍后重试。");
-            sessionLock.unlock();
+
+            // 确保异常情况下释放锁
+            if (sessionLock.isHeldByCurrentThread()) {
+                sessionLock.unlock();
+            }
         }
     }
 

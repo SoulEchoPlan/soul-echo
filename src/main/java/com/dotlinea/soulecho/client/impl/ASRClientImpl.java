@@ -16,7 +16,6 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import java.io.InputStream;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 阿里云实时语音识别 (ASR) 客户端实现
@@ -78,73 +77,78 @@ public class ASRClientImpl implements ASRClient {
     }
 
     @Override
-    public String recognize(InputStream audioStream) {
+    public CompletableFuture<String> recognizeAsync(InputStream audioStream) {
         if (audioStream == null) {
             logger.warn("接收到空的音频流");
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
 
-        SpeechTranscriber transcriber = null;
-        try {
-            // 创建异步结果容器
-            CompletableFuture<String> resultFuture = new CompletableFuture<>();
-            StringBuilder fullText = new StringBuilder();
+        // 创建异步结果容器
+        var resultFuture = new CompletableFuture<String>();
+        var fullText = new StringBuilder();
 
-            // 创建实时语音识别对象
-            transcriber = new SpeechTranscriber(nlsClient, getTranscriberListener(resultFuture, fullText));
-
-            // 设置识别参数
-            transcriber.setAppKey(appKey);
-            transcriber.setFormat(InputFormatEnum.PCM);
-            transcriber.setSampleRate(SampleRateEnum.SAMPLE_RATE_16K);
-            transcriber.setEnableIntermediateResult(true);
-
-            logger.debug("开始实时语音识别任务");
-
-            // 启动识别会话
-            transcriber.start();
-
-            // 从输入流循环读取音频数据并发送
-            byte[] buffer = new byte[CHUNK_SIZE];
-            int bytesRead;
-            while ((bytesRead = audioStream.read(buffer)) != -1) {
-                if (bytesRead > 0) {
-                    // 发送音频数据到阿里云
-                    byte[] audioData = new byte[bytesRead];
-                    System.arraycopy(buffer, 0, audioData, 0, bytesRead);
-                    transcriber.send(audioData);
-                    logger.trace("发送音频数据块，大小: {} bytes", bytesRead);
-                }
-            }
-
-            // 通知识别结束
-            transcriber.stop();
-            logger.debug("音频流发送完毕，等待识别结果");
-
-            // 阻塞等待识别结果 (最长等待10秒)
-            String result = resultFuture.get(10, TimeUnit.SECONDS);
-            logger.info("语音识别成功: {}", result);
-            return result;
-
-        } catch (Exception e) {
-            logger.error("语音识别过程中发生异常", e);
-            return null;
-        } finally {
-            // 清理资源
-            if (transcriber != null) {
-                try {
-                    transcriber.close();
-                } catch (Exception e) {
-                    logger.warn("关闭 SpeechTranscriber 时发生异常", e);
-                }
-            }
-            // 关闭输入流
+        // 在独立线程中执行音频发送逻辑，避免阻塞调用线程
+        CompletableFuture.runAsync(() -> {
+            SpeechTranscriber transcriber = null;
             try {
-                audioStream.close();
+                // 创建实时语音识别对象
+                transcriber = new SpeechTranscriber(nlsClient, getTranscriberListener(resultFuture, fullText));
+
+                // 设置识别参数
+                transcriber.setAppKey(appKey);
+                transcriber.setFormat(InputFormatEnum.PCM);
+                transcriber.setSampleRate(SampleRateEnum.SAMPLE_RATE_16K);
+                transcriber.setEnableIntermediateResult(true);
+
+                logger.debug("开始实时语音识别任务");
+
+                // 启动识别会话
+                transcriber.start();
+
+                // 从输入流循环读取音频数据并发送
+                byte[] buffer = new byte[CHUNK_SIZE];
+                int bytesRead;
+                while ((bytesRead = audioStream.read(buffer)) != -1) {
+                    if (bytesRead > 0) {
+                        // 发送音频数据到阿里云
+                        byte[] audioData = new byte[bytesRead];
+                        System.arraycopy(buffer, 0, audioData, 0, bytesRead);
+                        transcriber.send(audioData);
+                        logger.trace("发送音频数据块，大小: {} bytes", bytesRead);
+                    }
+                }
+
+                // 通知识别结束
+                transcriber.stop();
+                logger.debug("音频流发送完毕，等待识别结果回调");
+
             } catch (Exception e) {
-                logger.warn("关闭音频流时发生异常", e);
+                logger.error("语音识别过程中发生异常", e);
+                resultFuture.completeExceptionally(e);
+            } finally {
+                // 清理资源
+                if (transcriber != null) {
+                    try {
+                        transcriber.close();
+                    } catch (Exception e) {
+                        logger.warn("关闭 SpeechTranscriber 时发生异常", e);
+                    }
+                }
+                // 关闭输入流
+                try {
+                    audioStream.close();
+                } catch (Exception e) {
+                    logger.warn("关闭音频流时发生异常", e);
+                }
             }
-        }
+        }).exceptionally(throwable -> {
+            logger.error("异步音频发送任务失败", throwable);
+            resultFuture.completeExceptionally(throwable);
+            return null;
+        });
+
+        // 立即返回 Future，不阻塞当前线程
+        return resultFuture;
     }
 
     /**

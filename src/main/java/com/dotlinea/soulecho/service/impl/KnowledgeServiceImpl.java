@@ -6,12 +6,14 @@ import com.aliyun.teaopenapi.models.Config;
 import com.aliyun.teautil.models.RuntimeOptions;
 import com.dotlinea.soulecho.service.KnowledgeService;
 import com.dotlinea.soulecho.entity.KnowledgeBase;
+import com.dotlinea.soulecho.event.KnowledgeUploadEvent;
 import com.dotlinea.soulecho.repository.KnowledgeBaseRepository;
 import okhttp3.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,11 +52,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Value("${bailian.knowledge.index.id}")
     private String indexId;
 
+    @Value("${soul-echo.file.upload-path}")
+    private String uploadPath;
+
     private Client bailianClient;
     private OkHttpClient httpClient;
 
     @Autowired
     private KnowledgeBaseRepository repository;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @PostConstruct
     public void init() {
@@ -95,124 +103,97 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
     }
 
+    /**
+     * 上传文档到知识库（事件驱动模式）
+     * <p>
+     * 采用事件驱动架构，避免同步阻塞：
+     * 1. 保存文件到本地临时目录
+     * 2. 计算文件MD5哈希值
+     * 3. 在数据库中创建状态为 "UPLOADING" 的记录
+     * 4. 发布 KnowledgeUploadEvent 事件，触发异步上传流程
+     * 5. 立即返回结果，不等待上传完成
+     * </p>
+     *
+     * @param characterId 角色ID
+     * @param file        上传的文件
+     * @return 上传结果信息，包含文件ID和状态
+     */
     @Override
     public Map<String, Object> uploadDocument(Long characterId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new RuntimeException("上传文件不能为空");
         }
 
-        String aliyunFileId;
-        String jobId;
+        var originalFileName = file.getOriginalFilename();
+        var fileSize = file.getSize();
 
         try {
-            logger.info("开始上传文件到百炼知识库，角色ID: {}, 文件名: {}", characterId, file.getOriginalFilename());
+            logger.info("接收知识库文件上传请求 - 角色ID: {}, 文件名: {}, 大小: {} bytes",
+                    characterId, originalFileName, fileSize);
 
-            // 第一步：使用SDK获取文件上传租约并上传文件
-            try {
-                // 1. 申请文件上传租约
-                String md5Hash = calculateMD5(file.getInputStream());
-                long fileSize = file.getSize();
-
-                ApplyFileUploadLeaseRequest leaseRequest = new ApplyFileUploadLeaseRequest()
-                        .setFileName(file.getOriginalFilename())
-                        .setMd5(md5Hash)
-                        .setSizeInBytes(String.valueOf(fileSize));
-
-                ApplyFileUploadLeaseResponse leaseResponse = bailianClient.applyFileUploadLeaseWithOptions("default", workspaceId, leaseRequest, new HashMap<>(), new RuntimeOptions());
-
-                if (leaseResponse == null || leaseResponse.getBody() == null || leaseResponse.getBody().getData() == null ||
-                        leaseResponse.getBody().getData().getParam() == null || leaseResponse.getBody().getData().getParam().getUrl() == null) {
-                    throw new RuntimeException("申请文件上传租约失败");
-                }
-
-                String uploadUrl = leaseResponse.getBody().getData().getParam().getUrl();
-                String leaseId = leaseResponse.getBody().getData().getFileUploadLeaseId();
-                // Headers 是Object类型，需要转换为Map
-                Object headersObj = leaseResponse.getBody().getData().getParam().getHeaders();
-                Map<String, String> uploadHeaders = new HashMap<>();
-                if (headersObj instanceof Map<?, ?> rawHeaders) {
-                    for (Map.Entry<?, ?> entry : rawHeaders.entrySet()) {
-                        if (entry.getKey() instanceof String && entry.getValue() instanceof String) {
-                            uploadHeaders.put((String) entry.getKey(), (String) entry.getValue());
-                        }
-                    }
-                }
-
-                logger.info("获取文件上传租约成功，LeaseId: {}, UploadUrl: {}", leaseId, uploadUrl);
-
-                // 2. 上传文件到提供的URL
-                uploadFileToUrl(uploadUrl, file.getInputStream(), file.getOriginalFilename(), uploadHeaders);
-
-                logger.info("文件上传成功，LeaseId: {}", leaseId);
-
-                // 3. 通知百炼文件已上传完成
-                AddFileRequest addFileRequest = new AddFileRequest()
-                        .setLeaseId(leaseId)
-                        // 指定类目
-                        .setCategoryId("default")
-                        // 指定解析器
-                        .setParser("DASHSCOPE_DOCMIND");
-
-                AddFileResponse addFileResponse = bailianClient.addFileWithOptions(workspaceId, addFileRequest, new HashMap<>(), new RuntimeOptions());
-
-                if (addFileResponse == null || addFileResponse.getBody() == null || addFileResponse.getBody().getData() == null ||
-                        addFileResponse.getBody().getData().getFileId() == null) {
-                    throw new RuntimeException("文件添加通知失败");
-                }
-
-                aliyunFileId = addFileResponse.getBody().getData().getFileId();
-                logger.info("文件注册成功，FileId: {}", aliyunFileId);
-
-                // 4. 提交索引任务，将文件添加到知识库索引
-                SubmitIndexAddDocumentsJobRequest indexRequest = new SubmitIndexAddDocumentsJobRequest()
-                        .setIndexId(indexId)
-                        // 指定源类型为“文件”
-                        .setSourceType("DATA_CENTER_FILE")
-                        .setDocumentIds(Collections.singletonList(aliyunFileId));
-
-                SubmitIndexAddDocumentsJobResponse indexResponse = bailianClient.submitIndexAddDocumentsJobWithOptions(workspaceId, indexRequest, new HashMap<>(), new RuntimeOptions());
-
-                if (indexResponse == null || indexResponse.getBody() == null || indexResponse.getBody().getData() == null ||
-                        indexResponse.getBody().getData().getId() == null) {
-                    throw new RuntimeException("提交索引任务失败");
-                }
-
-                jobId = indexResponse.getBody().getData().getId();
-                logger.info("索引任务提交成功，JobId: {}", jobId);
-
-            } catch (Exception e) {
-                logger.error("文件上传到百炼失败", e);
-                throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
+            // === 步骤1: 保存文件到本地临时目录 ===
+            var uploadDir = new java.io.File(uploadPath);
+            if (!uploadDir.exists() && !uploadDir.mkdirs()) {
+                throw new RuntimeException("无法创建上传目录: " + uploadPath);
             }
 
-            // 第二步：构建完整的 KnowledgeBase 实体（包含已获取的 aliyunFileId）
-            KnowledgeBase knowledgeBase = KnowledgeBase.builder()
+            // 生成唯一文件名（UUID + 原始文件名）
+            var uniqueFileName = UUID.randomUUID() + "_" + originalFileName;
+            var localFilePath = uploadPath + java.io.File.separator + uniqueFileName;
+            var localFile = new java.io.File(localFilePath);
+
+            // 保存文件到本地
+            file.transferTo(localFile);
+            logger.debug("文件已保存到本地: {}", localFilePath);
+
+            // === 步骤2: 计算文件MD5哈希值 ===
+            String fileMd5;
+            try (var fileInputStream = new java.io.FileInputStream(localFile)) {
+                fileMd5 = calculateMD5(fileInputStream);
+            }
+            logger.debug("文件MD5计算完成: {}", fileMd5);
+
+            // === 步骤3: 在数据库中创建状态为 "UPLOADING" 的记录 ===
+            var knowledgeBase = KnowledgeBase.builder()
                     .characterId(characterId)
-                    .fileName(file.getOriginalFilename())
-                    .fileSize(file.getSize())
-                    .fileMd5(calculateMD5(file.getInputStream()))
-                    .aliyunFileId(aliyunFileId)
-                    .jobId(jobId)
-                    .status("INDEXING")
+                    .fileName(originalFileName)
+                    .fileSize(fileSize)
+                    .fileMd5(fileMd5)
+                    .status("UPLOADING")
                     .build();
 
-            // 第三步：一次性保存到数据库
             knowledgeBase = repository.save(knowledgeBase);
+            logger.info("知识库记录已创建 - ID: {}, 状态: UPLOADING", knowledgeBase.getId());
 
-            // 构造返回结果
-            Map<String, Object> result = new HashMap<>();
+            // === 步骤4: 发布 KnowledgeUploadEvent 事件 ===
+            var uploadEvent = KnowledgeUploadEvent.builder()
+                    .source(this)
+                    .knowledgeBaseId(knowledgeBase.getId())
+                    .characterId(characterId)
+                    .localFilePath(localFilePath)
+                    .originalFileName(originalFileName)
+                    .fileMd5(fileMd5)
+                    .fileSize(fileSize)
+                    .build();
+
+            eventPublisher.publishEvent(uploadEvent);
+            logger.info("KnowledgeUploadEvent 事件已发布 - ID: {}", knowledgeBase.getId());
+
+            // === 步骤5: 立即返回结果 ===
+            var result = new HashMap<String, Object>();
             result.put("id", knowledgeBase.getId());
-            result.put("aliyunFileId", aliyunFileId);
             result.put("characterId", characterId);
-            result.put("fileName", file.getOriginalFilename());
-            result.put("status", "INDEXING");
+            result.put("fileName", originalFileName);
+            result.put("fileSize", fileSize);
+            result.put("status", "UPLOADING");
             result.put("uploadTime", knowledgeBase.getCreatedAt());
+            result.put("message", "文件上传任务已提交，正在异步处理中");
 
-            logger.info("知识库记录保存成功，ID: {}, 状态: INDEXING", knowledgeBase.getId());
+            logger.info("文件上传请求处理完成，异步任务已启动 - ID: {}", knowledgeBase.getId());
             return result;
 
         } catch (Exception e) {
-            logger.error("上传文件到百炼知识库失败", e);
+            logger.error("处理文件上传请求失败 - 文件名: {}", originalFileName, e);
             throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
         }
     }
