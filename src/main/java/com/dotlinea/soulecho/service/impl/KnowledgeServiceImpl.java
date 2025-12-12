@@ -51,12 +51,26 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private final OkHttpClient httpClient;
     private final KnowledgeBaseRepository repository;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.dotlinea.soulecho.repository.CharacterRepository characterRepository;
 
     @Override
     public List<String> search(String characterName, String query) {
-        // 为了保持向后兼容性，使用searchByCharacterId的默认实现
+        // 根据角色名称查找角色
         try {
-            return searchByCharacterId(1L, query);
+            if (characterName == null || characterName.trim().isEmpty()) {
+                logger.warn("角色名称为空，无法检索知识库");
+                return new ArrayList<>();
+            }
+
+            // 根据角色名称查找角色实体
+            com.dotlinea.soulecho.entity.Character character = characterRepository.findByName(characterName);
+            if (character == null) {
+                logger.warn("未找到角色: {}，返回空结果", characterName);
+                return new ArrayList<>();
+            }
+
+            // 使用查找到的角色 ID 进行知识库检索
+            return searchByCharacterId(character.getId(), query);
         } catch (Exception e) {
             logger.error("检索知识库时发生异常，角色: {}, 查询: {}", characterName, query, e);
             return new ArrayList<>();

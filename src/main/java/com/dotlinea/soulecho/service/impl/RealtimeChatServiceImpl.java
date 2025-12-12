@@ -7,12 +7,13 @@ import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
 import com.dotlinea.soulecho.factory.WebSocketMessageFactory;
 import com.dotlinea.soulecho.service.RealtimeChatService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.redisson.api.RList;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.TextMessage;
@@ -37,7 +38,7 @@ import java.util.concurrent.*;
  * @since v1.0.0
  */
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     private static final Logger logger = LoggerFactory.getLogger(RealtimeChatServiceImpl.class);
@@ -66,15 +67,17 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
     private final RedissonClient redissonClient;
 
     /**
+     * 异步处理线程池（由 Spring 管理，避免 OOM）
+     * 使用 @Qualifier 注解指定注入 chatExecutor Bean
+     */
+    @Qualifier("chatExecutor")
+    private final Executor chatExecutor;
+
+    /**
      * 音频缓冲区 - 存储每个会话正在接收的音频数据
      * 保留在本地内存，因为音频流是高频小包，且 WebSocket 连接是粘性的
      */
     private final Map<String, AudioBuffer> audioBuffers = new ConcurrentHashMap<>();
-
-    /**
-     * 异步处理线程池
-     */
-    private final ExecutorService executorService = Executors.newCachedThreadPool();
 
     /**
      * 定时器线程池，用于语音端点检测
@@ -143,8 +146,8 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
         logger.info("会话 {} 检测到说话结束，音频数据大小: {} bytes", sessionId, audioData.length);
 
-        // 异步处理完整的音频数据
-        executorService.execute(() -> processAudioMessage(session, audioData));
+        // 异步处理完整的音频数据（使用 Spring 管理的线程池）
+        chatExecutor.execute(() -> processAudioMessage(session, audioData));
     }
 
     /**

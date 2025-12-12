@@ -110,6 +110,20 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         logger.debug("接收到会话 {} 的文本消息: {}", sessionId, textPayload);
 
         try {
+            // === 应用层心跳检测 ===
+            // 尝试解析为 JSON，判断是否为 ping 消息
+            try {
+                com.fasterxml.jackson.databind.JsonNode jsonNode = objectMapper.readTree(textPayload);
+                if (jsonNode.has("type") && "ping".equals(jsonNode.get("type").asText())) {
+                    // 收到 ping，立即回复 pong
+                    String pongMessage = "{\"type\":\"pong\"}";
+                    session.sendMessage(new TextMessage(pongMessage));
+                    logger.trace("会话 {} 收到 ping，回复 pong", sessionId);
+                    return; // 不触发 LLM 处理
+                }
+            } catch (Exception ignored) {
+                // 如果不是 JSON 或无法解析，视为普通用户文本消息，继续正常处理
+            }
 
             // 流式处理文本消息
             String personaPrompt = (String) session.getAttributes().get(PERSONA_PROMPT_PARAM);

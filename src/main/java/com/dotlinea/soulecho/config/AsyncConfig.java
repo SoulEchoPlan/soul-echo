@@ -117,6 +117,45 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     /**
+     * 配置实时聊天服务专用的异步任务执行器
+     * <p>
+     * 用于处理 WebSocket 会话的并发消息，包括 ASR、LLM、TTS 等计算密集型任务。
+     * 采用较高的最大线程数以应对高并发聊天场景。
+     * </p>
+     *
+     * @return 实时聊天专用执行器
+     */
+    @Bean(name = "chatExecutor")
+    public Executor chatExecutor() {
+        var executor = new ThreadPoolTaskExecutor();
+
+        // 核心线程数：保持较小的核心线程数以节省资源
+        executor.setCorePoolSize(10);
+
+        // 最大线程数：支持高并发聊天场景
+        executor.setMaxPoolSize(200);
+
+        // 队列容量：有限队列避免内存溢出
+        executor.setQueueCapacity(50);
+
+        executor.setThreadNamePrefix("chat-exec-");
+        executor.setKeepAliveSeconds(60);
+
+        // 拒绝策略：由调用线程执行，防止消息丢失
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+
+        executor.initialize();
+
+        log.info("实时聊天线程池初始化完成 - CorePoolSize: {}, MaxPoolSize: {}, QueueCapacity: {}",
+                executor.getCorePoolSize(), executor.getMaxPoolSize(), executor.getQueueCapacity());
+
+        return executor;
+    }
+
+    /**
      * 配置异步任务的全局异常处理器
      * <p>
      * 捕获 @Async 方法中未被捕获的异常，记录详细日志，避免异常被吞掉。
