@@ -2,27 +2,24 @@ package com.dotlinea.soulecho.service.impl;
 
 import com.aliyun.bailian20231229.Client;
 import com.aliyun.bailian20231229.models.*;
-import com.aliyun.teaopenapi.models.Config;
 import com.aliyun.teautil.models.RuntimeOptions;
 import com.dotlinea.soulecho.service.KnowledgeService;
 import com.dotlinea.soulecho.entity.KnowledgeBase;
 import com.dotlinea.soulecho.event.KnowledgeUploadEvent;
 import com.dotlinea.soulecho.repository.KnowledgeBaseRepository;
+import lombok.RequiredArgsConstructor;
 import okhttp3.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 知识库服务实现类
@@ -36,15 +33,10 @@ import java.util.concurrent.TimeUnit;
  * @since v1.0.0
  */
 @Service
+@RequiredArgsConstructor
 public class KnowledgeServiceImpl implements KnowledgeService {
 
     private static final Logger logger = LoggerFactory.getLogger(KnowledgeServiceImpl.class);
-
-    @Value("${aliyun.accessKeyId}")
-    private String accessKeyId;
-
-    @Value("${aliyun.accessKeySecret}")
-    private String accessKeySecret;
 
     @Value("${bailian.workspace.id}")
     private String workspaceId;
@@ -55,42 +47,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Value("${soul-echo.file.upload-path}")
     private String uploadPath;
 
-    private Client bailianClient;
-    private OkHttpClient httpClient;
-
-    @Autowired
-    private KnowledgeBaseRepository repository;
-
-    @Autowired
-    private ApplicationEventPublisher eventPublisher;
-
-    @PostConstruct
-    public void init() {
-        try {
-            logger.info("初始化百炼知识库服务...");
-
-            // 配置阿里云认证
-            Config config = new Config()
-                    .setAccessKeyId(accessKeyId)
-                    .setAccessKeySecret(accessKeySecret)
-                    .setEndpoint("bailian.cn-beijing.aliyuncs.com");
-
-            // 创建百炼客户端
-            bailianClient = new Client(config);
-
-            // 初始化HTTP客户端（用于文件上传）
-            httpClient = new OkHttpClient.Builder()
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .readTimeout(60, TimeUnit.SECONDS)
-                    .writeTimeout(60, TimeUnit.SECONDS)
-                    .build();
-
-            logger.info("百炼知识库服务初始化成功，Workspace: {}, Index: {}", workspaceId, indexId);
-        } catch (Exception e) {
-            logger.error("百炼知识库服务初始化失败", e);
-            throw new RuntimeException("知识库服务初始化异常", e);
-        }
-    }
+    private final Client bailianClient;
+    private final OkHttpClient httpClient;
+    private final KnowledgeBaseRepository repository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public List<String> search(String characterName, String query) {
