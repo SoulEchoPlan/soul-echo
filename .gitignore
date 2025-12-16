@@ -16,3 +16,5 @@ application-local.properties
 
 # Maven build output
 /target/
+
+.mcp.json
