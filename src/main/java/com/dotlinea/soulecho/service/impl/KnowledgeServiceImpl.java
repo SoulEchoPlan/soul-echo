@@ -3,6 +3,9 @@ package com.dotlinea.soulecho.service.impl;
 import com.aliyun.bailian20231229.Client;
 import com.aliyun.bailian20231229.models.*;
 import com.aliyun.teautil.models.RuntimeOptions;
+import com.dotlinea.soulecho.constants.FileStatusEnum;
+import com.dotlinea.soulecho.exception.BusinessException;
+import com.dotlinea.soulecho.exception.ErrorCode;
 import com.dotlinea.soulecho.service.KnowledgeService;
 import com.dotlinea.soulecho.entity.KnowledgeBase;
 import com.dotlinea.soulecho.event.KnowledgeUploadEvent;
@@ -55,7 +58,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     public List<String> search(String characterName, String query) {
-        // 根据角色名称查找角色
+        // 根据角色名称查找角色 - 保留降级逻辑
         try {
             if (characterName == null || characterName.trim().isEmpty()) {
                 logger.warn("角色名称为空，无法检索知识库");
@@ -95,7 +98,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Override
     public Map<String, Object> uploadDocument(Long characterId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new RuntimeException("上传文件不能为空");
+            throw new BusinessException(ErrorCode.KNOWLEDGE_FILE_EMPTY);
         }
 
         var originalFileName = file.getOriginalFilename();
@@ -108,7 +111,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             // === 步骤1: 保存文件到本地临时目录 ===
             var uploadDir = new java.io.File(uploadPath);
             if (!uploadDir.exists() && !uploadDir.mkdirs()) {
-                throw new RuntimeException("无法创建上传目录: " + uploadPath);
+                throw new BusinessException(ErrorCode.KNOWLEDGE_UPLOAD_FAILED, "无法创建上传目录");
             }
 
             // 生成唯一文件名（UUID + 原始文件名）
@@ -133,7 +136,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     .fileName(originalFileName)
                     .fileSize(fileSize)
                     .fileMd5(fileMd5)
-                    .status("UPLOADING")
+                    .status(FileStatusEnum.UPLOADING.getCode())
                     .build();
 
             knowledgeBase = repository.save(knowledgeBase);
@@ -159,21 +162,24 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             result.put("characterId", characterId);
             result.put("fileName", originalFileName);
             result.put("fileSize", fileSize);
-            result.put("status", "UPLOADING");
+            result.put("status", FileStatusEnum.UPLOADING.getCode());
             result.put("uploadTime", knowledgeBase.getCreatedAt());
             result.put("message", "文件上传任务已提交，正在异步处理中");
 
             logger.info("文件上传请求处理完成，异步任务已启动 - ID: {}", knowledgeBase.getId());
             return result;
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("处理文件上传请求失败 - 文件名: {}", originalFileName, e);
-            throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
+            throw new BusinessException(ErrorCode.KNOWLEDGE_UPLOAD_FAILED, "文件上传失败: " + e.getMessage(), e);
         }
     }
 
     @Override
     public List<String> searchByCharacterId(Long characterId, String query) {
+        // 保留降级逻辑 - 查询失败时返回空列表
         if (query == null || query.trim().isEmpty()) {
             logger.warn("查询文本为空");
             return new ArrayList<>();
@@ -219,19 +225,19 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
-    public boolean deleteDocument(Long documentId) {
+    public void deleteDocument(Long documentId) {
+        logger.info("删除知识库文档，ID: {}", documentId);
+
+        // 先从数据库中获取文档信息
+        Optional<KnowledgeBase> knowledgeBaseOpt = repository.findById(documentId);
+        if (knowledgeBaseOpt.isEmpty()) {
+            logger.warn("文档不存在，ID: {}", documentId);
+            throw new BusinessException(ErrorCode.KNOWLEDGE_NOT_FOUND, "知识库文档不存在: ID[" + documentId + "]");
+        }
+
+        KnowledgeBase knowledgeBase = knowledgeBaseOpt.get();
+
         try {
-            logger.info("删除知识库文档，ID: {}", documentId);
-
-            // 先从数据库中获取文档信息
-            Optional<KnowledgeBase> knowledgeBaseOpt = repository.findById(documentId);
-            if (knowledgeBaseOpt.isEmpty()) {
-                logger.warn("文档不存在，ID: {}", documentId);
-                return false;
-            }
-
-            KnowledgeBase knowledgeBase = knowledgeBaseOpt.get();
-
             // 使用SDK删除文档
             DeleteIndexDocumentRequest deleteRequest = new DeleteIndexDocumentRequest()
                     .setIndexId(indexId)
@@ -249,18 +255,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 logger.info("文档删除成功，ID: {}", documentId);
             } else {
                 logger.warn("百炼API删除失败，ID: {}", documentId);
+                throw new BusinessException(ErrorCode.KNOWLEDGE_DELETE_FAILED, "云端文档删除失败");
             }
 
-            return success;
-
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("删除知识库文档失败，ID: {}", documentId, e);
-            return false;
+            throw new BusinessException(ErrorCode.KNOWLEDGE_DELETE_FAILED, "文档删除失败: " + e.getMessage(), e);
         }
     }
 
     @Override
     public List<Map<String, Object>> listDocuments(Long characterId) {
+        // 保留降级逻辑 - 查询失败时返回空列表
         try {
             logger.debug("获取角色 {} 的文档列表", characterId);
 
@@ -288,8 +296,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
                 // 状态映射：INDEXING -> INDEXING, ACTIVE -> ACTIVE, FAILED -> FAILED
                 String status = kb.getStatus();
-                if ("COMPLETED".equals(status)) {
-                    status = "ACTIVE";
+                if (FileStatusEnum.COMPLETED.getCode().equals(status)) {
+                    status = FileStatusEnum.ACTIVE.getCode();
                 }
                 doc.put("status", status);
                 doc.put("uploadTime", kb.getCreatedAt());
@@ -396,7 +404,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 String errorBody = response.body() != null ? response.body().string() : "";
                 // 记录详细的错误日志以便排查
                 logger.error("OSS上传失败，URL: {}, Status: {}, Body: {}", uploadUrl, response.code(), errorBody);
-                throw new RuntimeException("文件上传失败，HTTP状态码: " + response.code() + ", 响应: " + errorBody);
+                throw new BusinessException(ErrorCode.KNOWLEDGE_UPLOAD_FAILED, "文件上传失败，HTTP状态码: " + response.code());
             }
         }
     }

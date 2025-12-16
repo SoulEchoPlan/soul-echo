@@ -3,6 +3,7 @@ package com.dotlinea.soulecho.listener;
 import com.aliyun.bailian20231229.Client;
 import com.aliyun.bailian20231229.models.*;
 import com.aliyun.teautil.models.RuntimeOptions;
+import com.dotlinea.soulecho.constants.FileStatusEnum;
 import com.dotlinea.soulecho.event.KnowledgeUploadEvent;
 import com.dotlinea.soulecho.repository.KnowledgeBaseRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -157,7 +158,7 @@ public class KnowledgeUploadListener {
             log.info("索引任务提交成功 - JobId: {}", jobId);
 
             // === 步骤5: 更新数据库状态为 INDEXING ===
-            updateKnowledgeBaseStatus(knowledgeBaseId, aliyunFileId, jobId, "INDEXING", null);
+            updateKnowledgeBaseStatus(knowledgeBaseId, aliyunFileId, jobId, FileStatusEnum.INDEXING.getCode(), null);
 
             // === 步骤6: 清理本地临时文件 ===
             cleanupLocalFile(localFilePath);
@@ -168,7 +169,7 @@ public class KnowledgeUploadListener {
             log.error("知识库上传处理失败 - ID: {}", knowledgeBaseId, e);
 
             // 更新数据库状态为 FAILED,并记录错误信息
-            updateKnowledgeBaseStatus(knowledgeBaseId, null, null, "FAILED", e.getMessage());
+            updateKnowledgeBaseStatus(knowledgeBaseId, null, null, FileStatusEnum.FAILED.getCode(), e.getMessage());
 
             // 清理本地临时文件
             cleanupLocalFile(localFilePath);

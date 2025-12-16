@@ -3,6 +3,9 @@ package com.dotlinea.soulecho.service.impl;
 import com.dotlinea.soulecho.client.ASRClient;
 import com.dotlinea.soulecho.client.LLMClient;
 import com.dotlinea.soulecho.client.TTSClient;
+import com.dotlinea.soulecho.constants.PersonaPromptConstants;
+import com.dotlinea.soulecho.constants.RedisKeyConstants;
+import com.dotlinea.soulecho.constants.SessionAttributeKeys;
 import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
 import com.dotlinea.soulecho.factory.WebSocketMessageFactory;
 import com.dotlinea.soulecho.service.RealtimeChatService;
@@ -48,16 +51,6 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      * 如果在此时间内没有收到新的音频数据，则认为用户说话结束
      */
     private static final long SILENCE_TIMEOUT_MS = 500;
-
-    /**
-     * Redis 键前缀 - 会话历史
-     */
-    private static final String REDIS_KEY_SESSION_HISTORY = "soul-echo:session:history:";
-
-    /**
-     * Redis 键前缀 - 会话锁
-     */
-    private static final String REDIS_KEY_SESSION_LOCK = "soul-echo:session:lock:";
 
     private final ASRClient asrClient;
     private final LLMClient llmClient;
@@ -365,13 +358,13 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         logger.info("清理会话 {} 的资源", sessionId);
 
         // 清理 Redis 中的会话历史
-        String historyKey = REDIS_KEY_SESSION_HISTORY + sessionId;
+        String historyKey = RedisKeyConstants.SESSION_HISTORY_PREFIX + sessionId;
         RList<String> sessionHistory = redissonClient.getList(historyKey);
         sessionHistory.delete();
         logger.debug("已删除会话 {} 的 Redis 历史记录", sessionId);
 
         // 清理 Redis 中的会话锁（如果存在且未被占用）
-        String lockKey = REDIS_KEY_SESSION_LOCK + sessionId;
+        String lockKey = RedisKeyConstants.SESSION_LOCK_PREFIX + sessionId;
         RLock sessionLock = redissonClient.getLock(lockKey);
         // 分布式锁会自动过期，这里主要是立即释放（如果当前线程持有）
         if (sessionLock.isHeldByCurrentThread()) {
@@ -394,13 +387,13 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      */
     private String getPersonaPrompt(WebSocketSession session) {
         // 从会话属性中获取角色设定
-        Object personaPrompt = session.getAttributes().get("personaPrompt");
+        Object personaPrompt = session.getAttributes().get(SessionAttributeKeys.PERSONA_PROMPT);
         if (personaPrompt instanceof String promptString) {
             return promptString;
         }
 
         // 默认角色设定
-        return "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
+        return PersonaPromptConstants.DEFAULT_PERSONA;
     }
 
     /**
@@ -410,13 +403,13 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      */
     private String getCharacterName(WebSocketSession session) {
         // 从会话属性中获取角色名称
-        Object characterName = session.getAttributes().get("characterName");
+        Object characterName = session.getAttributes().get(SessionAttributeKeys.CHARACTER_NAME);
         if (characterName instanceof String nameString) {
             return nameString;
         }
 
         // 默认角色名称
-        return "default";
+        return PersonaPromptConstants.DEFAULT_CHARACTER_NAME;
     }
 
     /**
@@ -425,7 +418,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      * @return 会话历史列表（RList，支持分布式存储）
      */
     private RList<String> getSessionHistory(String sessionId) {
-        String redisKey = REDIS_KEY_SESSION_HISTORY + sessionId;
+        String redisKey = RedisKeyConstants.SESSION_HISTORY_PREFIX + sessionId;
         return redissonClient.getList(redisKey);
     }
 
@@ -435,7 +428,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      * @return 分布式锁（RLock）
      */
     private RLock getSessionLock(String sessionId) {
-        String redisKey = REDIS_KEY_SESSION_LOCK + sessionId;
+        String redisKey = RedisKeyConstants.SESSION_LOCK_PREFIX + sessionId;
         return redissonClient.getLock(redisKey);
     }
 

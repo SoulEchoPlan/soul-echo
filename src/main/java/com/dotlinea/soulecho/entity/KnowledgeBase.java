@@ -1,5 +1,6 @@
 package com.dotlinea.soulecho.entity;
 
+import com.dotlinea.soulecho.constants.FileStatusEnum;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -68,7 +69,7 @@ public class KnowledgeBase {
      */
     @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
-    private String status = "UPLOADING";
+    private String status = FileStatusEnum.UPLOADING.getCode();
 
     /**
      * 索引任务ID（如果有）
