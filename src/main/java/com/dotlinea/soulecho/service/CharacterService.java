@@ -5,6 +5,8 @@ import com.dotlinea.soulecho.dto.CharacterResponseDTO;
 import com.dotlinea.soulecho.dto.ChatRequestDTO;
 import com.dotlinea.soulecho.dto.ChatResponseDTO;
 import com.dotlinea.soulecho.entity.Character;
+import com.dotlinea.soulecho.exception.BusinessException;
+import com.dotlinea.soulecho.exception.ResourceNotFoundException;
 
 import java.util.List;
 
@@ -42,15 +44,18 @@ public interface CharacterService {
 
     /**
      * 根据ID删除角色
+     *
      * @param id 角色ID
-     * @return 删除成功则返回true, 否则返回false
+     * @throws ResourceNotFoundException 如果角色不存在
      */
-    boolean deleteById(Long id);
+    void deleteById(Long id);
 
     /**
      * 根据名称查找角色
+     *
      * @param name 角色名称
-     * @return 角色实体, 如果找不到则返回null
+     * @return 角色实体
+     * @throws BusinessException 如果找不到角色
      */
     Character findByName(String name);
 

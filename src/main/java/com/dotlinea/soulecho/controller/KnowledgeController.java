@@ -1,11 +1,10 @@
 package com.dotlinea.soulecho.controller;
 
+import com.dotlinea.soulecho.dto.ApiResponse;
 import com.dotlinea.soulecho.service.KnowledgeService;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -45,25 +44,14 @@ public class KnowledgeController {
      * @return 上传结果
      */
     @PostMapping("/upload")
-    public ResponseEntity<Map<String, Object>> uploadKnowledgeDocument(
+    public ApiResponse<Map<String, Object>> uploadKnowledgeDocument(
             @RequestParam("characterId") Long characterId,
             @RequestParam("file") MultipartFile file) {
-        try {
-            logger.info("上传知识库文档，角色ID: {}, 文件名: {}", characterId, file.getOriginalFilename());
 
-            Map<String, Object> result = knowledgeService.uploadDocument(characterId, file);
-            return ResponseEntity.ok(result);
+        logger.info("上传知识库文档，角色ID: {}, 文件名: {}", characterId, file.getOriginalFilename());
 
-        } catch (Exception e) {
-            logger.error("上传知识库文档失败，角色ID: {}, 文件名: {}", characterId, file.getOriginalFilename(), e);
-
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "文档上传失败");
-            errorResponse.put("message", e.getMessage());
-            errorResponse.put("status", "ERROR");
-
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-        }
+        Map<String, Object> result = knowledgeService.uploadDocument(characterId, file);
+        return ApiResponse.success(result);
     }
 
     /**
@@ -77,33 +65,21 @@ public class KnowledgeController {
      * @return 检索结果
      */
     @GetMapping("/search")
-    public ResponseEntity<Map<String, Object>> searchKnowledge(
+    public ApiResponse<Map<String, Object>> searchKnowledge(
             @RequestParam("characterId") Long characterId,
             @RequestParam("query") String query) {
-        try {
-            logger.debug("搜索知识库，角色ID: {}, 查询: {}", characterId, query);
 
-            List<String> results = knowledgeService.searchByCharacterId(characterId, query);
+        logger.debug("搜索知识库，角色ID: {}, 查询: {}", characterId, query);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("characterId", characterId);
-            response.put("query", query);
-            response.put("results", results);
-            response.put("count", results.size());
-            response.put("status", "SUCCESS");
+        List<String> results = knowledgeService.searchByCharacterId(characterId, query);
 
-            return ResponseEntity.ok(response);
+        Map<String, Object> response = new HashMap<>();
+        response.put("characterId", characterId);
+        response.put("query", query);
+        response.put("results", results);
+        response.put("count", results.size());
 
-        } catch (Exception e) {
-            logger.error("搜索知识库失败，角色ID: {}, 查询: {}", characterId, query, e);
-
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "搜索失败");
-            errorResponse.put("message", e.getMessage());
-            errorResponse.put("status", "ERROR");
-
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-        }
+        return ApiResponse.success(response);
     }
 
     /**
@@ -116,18 +92,11 @@ public class KnowledgeController {
      * @return 文档列表
      */
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> listDocuments(@RequestParam("characterId") Long characterId) {
-        try {
-            logger.debug("获取角色 {} 的文档列表", characterId);
+    public ApiResponse<List<Map<String, Object>>> listDocuments(@RequestParam("characterId") Long characterId) {
+        logger.debug("获取角色 {} 的文档列表", characterId);
 
-            List<Map<String, Object>> documents = knowledgeService.listDocuments(characterId);
-
-            return ResponseEntity.ok(documents);
-
-        } catch (Exception e) {
-            logger.error("获取文档列表失败，角色ID: {}", characterId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        List<Map<String, Object>> documents = knowledgeService.listDocuments(characterId);
+        return ApiResponse.success(documents);
     }
 
     /**
@@ -140,23 +109,11 @@ public class KnowledgeController {
      * @return 删除结果
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteKnowledgeDocument(@PathVariable Long id) {
-        try {
-            logger.info("删除知识库文档，ID: {}", id);
+    public ApiResponse<Void> deleteKnowledgeDocument(@PathVariable Long id) {
+        logger.info("删除知识库文档，ID: {}", id);
 
-            boolean success = knowledgeService.deleteDocument(id);
-
-            if (success) {
-                // 204 NO CONTENT
-                return ResponseEntity.noContent().build();
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-
-        } catch (Exception e) {
-            logger.error("删除知识库文档失败，ID: {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        knowledgeService.deleteDocument(id);
+        return ApiResponse.success();
     }
 
     /**
@@ -169,38 +126,27 @@ public class KnowledgeController {
      * @return 检索结果
      */
     @PostMapping("/debug/search")
-    public ResponseEntity<Map<String, Object>> debugSearch(@RequestBody Map<String, Object> request) {
-        try {
-            Long characterId = Long.valueOf(request.get("characterId").toString());
-            String query = request.get("query").toString();
+    public ApiResponse<Map<String, Object>> debugSearch(@RequestBody Map<String, Object> request) {
+        Long characterId = Long.valueOf(request.get("characterId").toString());
+        String query = request.get("query").toString();
 
-            logger.debug("调试搜索知识库，角色ID: {}, 查询: {}", characterId, query);
+        logger.debug("调试搜索知识库，角色ID: {}, 查询: {}", characterId, query);
 
-            List<String> results = knowledgeService.searchByCharacterId(characterId, query);
+        List<String> results = knowledgeService.searchByCharacterId(characterId, query);
 
-            Map<String, Object> response = new HashMap<>();
-            List<Map<String, Object>> matches = new ArrayList<>();
+        Map<String, Object> response = new HashMap<>();
+        List<Map<String, Object>> matches = new ArrayList<>();
 
-            for (int i = 0; i < results.size(); i++) {
-                Map<String, Object> match = new HashMap<>();
-                match.put("content", results.get(i));
-                // 模拟相关性得分
-                match.put("score", 1.0 - (i * 0.1));
-                matches.add(match);
-            }
-
-            response.put("matches", matches);
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            logger.error("调试搜索失败", e);
-
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "搜索失败");
-            errorResponse.put("message", e.getMessage());
-
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        for (int i = 0; i < results.size(); i++) {
+            Map<String, Object> match = new HashMap<>();
+            match.put("content", results.get(i));
+            // 模拟相关性得分
+            match.put("score", 1.0 - (i * 0.1));
+            matches.add(match);
         }
+
+        response.put("matches", matches);
+
+        return ApiResponse.success(response);
     }
 }

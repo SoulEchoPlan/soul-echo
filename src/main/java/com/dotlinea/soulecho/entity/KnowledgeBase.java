@@ -1,11 +1,10 @@
 package com.dotlinea.soulecho.entity;
 
+import com.dotlinea.soulecho.constants.FileStatusEnum;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * 知识库文件实体类
@@ -20,7 +19,9 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "knowledge_base")
-@Data
+@Getter
+@Setter
+@ToString
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -68,7 +69,7 @@ public class KnowledgeBase {
      */
     @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
-    private String status = "UPLOADING";
+    private String status = FileStatusEnum.UPLOADING.getCode();
 
     /**
      * 索引任务ID（如果有）
@@ -102,5 +103,33 @@ public class KnowledgeBase {
     @PreUpdate
     public void preUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 重写 equals 方法，仅比较 id
+     * <p>
+     * 符合 JPA 最佳实践：
+     * 1. 瞬态对象（id 为 null）视为不相等
+     * 2. 持久化对象仅根据 id 判断相等性
+     * 3. 处理 Hibernate 代理类型不同的情况
+     * </p>
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        KnowledgeBase that = (KnowledgeBase) o;
+        return id != null && Objects.equals(id, that.id);
+    }
+
+    /**
+     * 重写 hashCode 方法，仅基于 id
+     * <p>
+     * 注意：为了保证集合操作的一致性，瞬态对象使用固定的 hashCode
+     * </p>
+     */
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
     }
 }

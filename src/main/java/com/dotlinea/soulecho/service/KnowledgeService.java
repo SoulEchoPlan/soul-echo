@@ -1,5 +1,6 @@
 package com.dotlinea.soulecho.service;
 
+import com.dotlinea.soulecho.exception.BusinessException;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.Map;
@@ -59,9 +60,9 @@ public interface KnowledgeService {
      * </p>
      *
      * @param documentId 文档ID
-     * @return 删除结果
+     * @throws BusinessException 如果文档不存在或删除失败
      */
-    boolean deleteDocument(Long documentId);
+    void deleteDocument(Long documentId);
 
     /**
      * 获取某个角色的文档列表
