@@ -1,5 +1,6 @@
 package com.dotlinea.soulecho.factory;
 
+import com.dotlinea.soulecho.constants.MessageTypeConstants;
 import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
 import org.springframework.stereotype.Component;
 
@@ -25,7 +26,7 @@ public class WebSocketMessageFactory {
      */
     public WebSocketMessageDTO createUserTranscription(String transcribedText, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();
-        dto.setType("user-transcription");
+        dto.setType(MessageTypeConstants.USER_TRANSCRIPTION);
         dto.setContent(transcribedText);
         dto.setSessionId(sessionId);
         dto.setTimestamp(System.currentTimeMillis());
@@ -41,7 +42,7 @@ public class WebSocketMessageFactory {
      */
     public WebSocketMessageDTO createError(String errorMessage, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();
-        dto.setType("error");
+        dto.setType(MessageTypeConstants.ERROR);
         dto.setContent(errorMessage);
         dto.setSessionId(sessionId);
         dto.setTimestamp(System.currentTimeMillis());
@@ -57,7 +58,7 @@ public class WebSocketMessageFactory {
      */
     public WebSocketMessageDTO createAIReply(String replyText, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();
-        dto.setType("ai-reply");
+        dto.setType(MessageTypeConstants.AI_REPLY);
         dto.setContent(replyText);
         dto.setSessionId(sessionId);
         dto.setTimestamp(System.currentTimeMillis());
@@ -73,7 +74,7 @@ public class WebSocketMessageFactory {
      */
     public WebSocketMessageDTO createAudioInfo(String audioInfo, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();
-        dto.setType("audio-info");
+        dto.setType(MessageTypeConstants.AUDIO_INFO);
         dto.setContent(audioInfo);
         dto.setSessionId(sessionId);
         dto.setTimestamp(System.currentTimeMillis());

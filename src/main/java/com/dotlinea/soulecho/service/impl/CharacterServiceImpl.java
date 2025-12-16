@@ -5,7 +5,8 @@ import com.dotlinea.soulecho.dto.CharacterResponseDTO;
 import com.dotlinea.soulecho.dto.ChatRequestDTO;
 import com.dotlinea.soulecho.dto.ChatResponseDTO;
 import com.dotlinea.soulecho.entity.Character;
-import com.dotlinea.soulecho.exception.CharacterServiceException;
+import com.dotlinea.soulecho.exception.BusinessException;
+import com.dotlinea.soulecho.exception.ErrorCode;
 import com.dotlinea.soulecho.exception.ResourceNotFoundException;
 import com.dotlinea.soulecho.repository.CharacterRepository;
 import com.dotlinea.soulecho.service.CharacterService;
@@ -54,7 +55,7 @@ public class CharacterServiceImpl implements CharacterService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             logger.error("查询所有角色失败", e);
-            throw new CharacterServiceException("查询所有角色失败", e);
+            throw new BusinessException(ErrorCode.CHARACTER_QUERY_FAILED, e);
         }
     }
 
@@ -76,22 +77,23 @@ public class CharacterServiceImpl implements CharacterService {
             return convertToResponseDTO(savedCharacter);
         } catch (Exception e) {
             logger.error("创建角色失败: {}", requestDTO.name(), e);
-            throw new CharacterServiceException("创建角色失败: 角色名称[" + requestDTO.name() + "]", e);
+            throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED, "创建角色失败: " + requestDTO.name(), e);
         }
     }
 
     @Override
-    public boolean deleteById(Long id) {
+    public void deleteById(Long id) {
         logger.debug("删除角色: {}", id);
         try {
-            if (characterRepository.existsById(id)) {
-                characterRepository.deleteById(id);
-                return true;
+            if (!characterRepository.existsById(id)) {
+                throw new ResourceNotFoundException("未找到ID为 " + id + " 的角色");
             }
-            return false;
+            characterRepository.deleteById(id);
+        } catch (ResourceNotFoundException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("删除角色失败: {}", id, e);
-            throw new CharacterServiceException("删除角色失败: ID[" + id + "]", e);
+            throw new BusinessException(ErrorCode.CHARACTER_DELETE_FAILED, "删除角色失败: ID[" + id + "]", e);
         }
     }
 
@@ -100,10 +102,16 @@ public class CharacterServiceImpl implements CharacterService {
     public Character findByName(String name) {
         logger.debug("根据名称查找角色: {}", name);
         try {
-            return characterRepository.findByName(name);
+            Character character = characterRepository.findByName(name);
+            if (character == null) {
+                throw new BusinessException(ErrorCode.CHARACTER_NOT_FOUND, "未找到角色: " + name);
+            }
+            return character;
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("根据名称查找角色失败: {}", name, e);
-            return null;
+            throw new BusinessException(ErrorCode.CHARACTER_QUERY_FAILED, "查询角色失败", e);
         }
     }
 
@@ -118,7 +126,7 @@ public class CharacterServiceImpl implements CharacterService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             logger.error("查询所有公开角色失败", e);
-            throw new CharacterServiceException("查询所有公开角色失败", e);
+            throw new BusinessException(ErrorCode.CHARACTER_QUERY_FAILED, "查询所有公开角色失败", e);
         }
     }
 
@@ -146,8 +154,13 @@ public class CharacterServiceImpl implements CharacterService {
             existingCharacter.setPublic(requestDTO.isPublic());
         }
 
-        Character updatedCharacter = characterRepository.save(existingCharacter);
-        return convertToResponseDTO(updatedCharacter);
+        try {
+            Character updatedCharacter = characterRepository.save(existingCharacter);
+            return convertToResponseDTO(updatedCharacter);
+        } catch (Exception e) {
+            logger.error("更新角色失败: {}", id, e);
+            throw new BusinessException(ErrorCode.CHARACTER_UPDATE_FAILED, "更新角色失败: ID[" + id + "]", e);
+        }
     }
 
     @Override
@@ -176,7 +189,7 @@ public class CharacterServiceImpl implements CharacterService {
      */
     private void validateChatRequest(ChatRequestDTO request) {
         if (request.getMessage() == null || request.getMessage().trim().isEmpty()) {
-            throw new IllegalArgumentException("消息不能为空");
+            throw new BusinessException(ErrorCode.CHAT_MESSAGE_EMPTY);
         }
     }
 
@@ -250,7 +263,7 @@ public class CharacterServiceImpl implements CharacterService {
                 : String.format("SessionID: %s", sessionId);
 
             logger.error("调用LLM服务时发生错误, {}", errorContext, llmEx);
-            throw new ChatServiceException("调用AI核心时出错: " + llmEx.getMessage(), llmEx);
+            throw new BusinessException(ErrorCode.CHAT_LLM_ERROR, "调用AI核心时出错: " + llmEx.getMessage(), llmEx);
         }
     }
 
@@ -263,15 +276,6 @@ public class CharacterServiceImpl implements CharacterService {
             return ChatResponseDTO.success(reply, sessionId);
         } else {
             return ChatResponseDTO.error("生成回复失败");
-        }
-    }
-
-    /**
-     * 聊天服务异常
-     */
-    private static class ChatServiceException extends RuntimeException {
-        public ChatServiceException(String message, Throwable cause) {
-            super(message, cause);
         }
     }
 

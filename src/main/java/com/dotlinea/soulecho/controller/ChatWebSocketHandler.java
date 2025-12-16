@@ -1,5 +1,8 @@
 package com.dotlinea.soulecho.controller;
 
+import com.dotlinea.soulecho.constants.MessageTypeConstants;
+import com.dotlinea.soulecho.constants.PersonaPromptConstants;
+import com.dotlinea.soulecho.constants.SessionAttributeKeys;
 import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
 import com.dotlinea.soulecho.factory.WebSocketMessageFactory;
 import com.dotlinea.soulecho.service.RealtimeChatService;
@@ -33,9 +36,6 @@ import java.nio.charset.StandardCharsets;
 public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketHandler.class);
-    private static final String PERSONA_PROMPT_PARAM = "personaPrompt";
-    private static final String CHARACTER_ID_PARAM = "characterId";
-    private static final String DEFAULT_PERSONA_PROMPT = "你是一个友好、有帮助的AI助手。请用自然、亲切的语气与用户对话。";
 
     private final RealtimeChatService chatService;
     private final ObjectMapper objectMapper;
@@ -55,22 +55,22 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         URI uri = session.getUri();
         if (uri != null && uri.getQuery() != null) {
             String query = uri.getQuery();
-            String characterId = extractParameter(query, CHARACTER_ID_PARAM);
-            String personaPrompt = extractParameter(query, PERSONA_PROMPT_PARAM);
+            String characterId = extractParameter(query, SessionAttributeKeys.CHARACTER_ID);
+            String personaPrompt = extractParameter(query, SessionAttributeKeys.PERSONA_PROMPT);
 
             // 将角色信息存储到会话属性中
             if (characterId != null) {
-                session.getAttributes().put(CHARACTER_ID_PARAM, characterId);
+                session.getAttributes().put(SessionAttributeKeys.CHARACTER_ID, characterId);
             }
             if (personaPrompt != null) {
-                session.getAttributes().put(PERSONA_PROMPT_PARAM, personaPrompt);
+                session.getAttributes().put(SessionAttributeKeys.PERSONA_PROMPT, personaPrompt);
                 logger.debug("会话 {} 设置角色提示词: {}", session.getId(), personaPrompt);
             }
         }
 
         // 设置默认角色提示词（如果未提供）
-        if (!session.getAttributes().containsKey(PERSONA_PROMPT_PARAM)) {
-            session.getAttributes().put(PERSONA_PROMPT_PARAM, DEFAULT_PERSONA_PROMPT);
+        if (!session.getAttributes().containsKey(SessionAttributeKeys.PERSONA_PROMPT)) {
+            session.getAttributes().put(SessionAttributeKeys.PERSONA_PROMPT, PersonaPromptConstants.DEFAULT_PERSONA);
         }
 
         logger.info("会话 {} 初始化完成", session.getId());
@@ -114,9 +114,9 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
             // 尝试解析为 JSON，判断是否为 ping 消息
             try {
                 com.fasterxml.jackson.databind.JsonNode jsonNode = objectMapper.readTree(textPayload);
-                if (jsonNode.has("type") && "ping".equals(jsonNode.get("type").asText())) {
+                if (jsonNode.has("type") && MessageTypeConstants.PING.equals(jsonNode.get("type").asText())) {
                     // 收到 ping，立即回复 pong
-                    String pongMessage = "{\"type\":\"pong\"}";
+                    String pongMessage = "{\"type\":\"" + MessageTypeConstants.PONG + "\"}";
                     session.sendMessage(new TextMessage(pongMessage));
                     logger.trace("会话 {} 收到 ping，回复 pong", sessionId);
                     return; // 不触发 LLM 处理
@@ -126,7 +126,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
             }
 
             // 流式处理文本消息
-            String personaPrompt = (String) session.getAttributes().get(PERSONA_PROMPT_PARAM);
+            String personaPrompt = (String) session.getAttributes().get(SessionAttributeKeys.PERSONA_PROMPT);
 
             // 调用流式方法，每收到文本块就立即发送给前端
             chatService.processTextChatStream(personaPrompt, textPayload, sessionId, chunk -> {

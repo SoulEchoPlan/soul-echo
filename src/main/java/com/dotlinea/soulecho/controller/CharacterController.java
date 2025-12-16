@@ -1,18 +1,17 @@
 package com.dotlinea.soulecho.controller;
 
+import com.dotlinea.soulecho.dto.ApiResponse;
 import com.dotlinea.soulecho.dto.CharacterRequestDTO;
 import com.dotlinea.soulecho.dto.CharacterResponseDTO;
 import com.dotlinea.soulecho.dto.ChatRequestDTO;
 import com.dotlinea.soulecho.dto.ChatResponseDTO;
 import com.dotlinea.soulecho.service.CharacterService;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.validation.Valid;
 import java.util.List;
 
 /**
@@ -50,65 +49,66 @@ public class CharacterController {
 
     /**
      * 获取所有角色列表
+     *
      * @return 角色列表
      */
     @GetMapping
-    public ResponseEntity<List<CharacterResponseDTO>> getAllCharacters() {
+    public ApiResponse<List<CharacterResponseDTO>> getAllCharacters() {
         logger.debug("获取所有角色列表");
         List<CharacterResponseDTO> characters = characterService.findAll();
-        return ResponseEntity.ok(characters);
+        return ApiResponse.success(characters);
     }
 
     /**
      * 根据ID获取角色
+     *
      * @param id 角色ID
      * @return 角色信息
      */
     @GetMapping("/{id}")
-    public ResponseEntity<CharacterResponseDTO> getCharacterById(@PathVariable Long id) {
+    public ApiResponse<CharacterResponseDTO> getCharacterById(@PathVariable Long id) {
         logger.debug("获取角色信息，ID: {}", id);
         CharacterResponseDTO character = characterService.findCharacterById(id);
-        return ResponseEntity.ok(character);
+        return ApiResponse.success(character);
     }
 
     /**
      * 创建角色
+     *
      * @param requestDTO 角色请求数据
      * @return 创建的角色信息
      */
     @PostMapping
-    public ResponseEntity<CharacterResponseDTO> createCharacter(@Valid @RequestBody CharacterRequestDTO requestDTO) {
+    public ApiResponse<CharacterResponseDTO> createCharacter(@Valid @RequestBody CharacterRequestDTO requestDTO) {
         logger.info("创建角色: {}", requestDTO.name());
         CharacterResponseDTO response = characterService.createCharacter(requestDTO);
-        return new ResponseEntity<>(response, HttpStatus.CREATED);
+        return ApiResponse.success("角色创建成功", response);
     }
 
     /**
      * 更新角色信息
-     * @param id 角色ID
+     *
+     * @param id         角色ID
      * @param requestDTO 更新的角色数据
      * @return 更新后的角色信息
      */
     @PutMapping("/{id}")
-    public ResponseEntity<CharacterResponseDTO> updateCharacter(@PathVariable Long id, @Valid @RequestBody CharacterRequestDTO requestDTO) {
+    public ApiResponse<CharacterResponseDTO> updateCharacter(@PathVariable Long id, @Valid @RequestBody CharacterRequestDTO requestDTO) {
         logger.info("更新角色信息，ID: {}", id);
         CharacterResponseDTO response = characterService.updateCharacter(id, requestDTO);
-        return ResponseEntity.ok(response);
+        return ApiResponse.success("角色更新成功", response);
     }
 
     /**
      * 删除角色
+     *
      * @param id 角色ID
      * @return 删除结果
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteCharacter(@PathVariable Long id) {
+    public ApiResponse<Void> deleteCharacter(@PathVariable Long id) {
         logger.info("删除角色，ID: {}", id);
-        boolean deleted = characterService.deleteById(id);
-        if (deleted) {
-            return ResponseEntity.ok().build();
-        } else {
-            return ResponseEntity.notFound().build();
-        }
+        characterService.deleteById(id);
+        return ApiResponse.success();
     }
 }
