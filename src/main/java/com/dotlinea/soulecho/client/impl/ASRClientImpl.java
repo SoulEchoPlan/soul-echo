@@ -8,6 +8,7 @@ import com.alibaba.nls.client.protocol.asr.SpeechTranscriber;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberListener;
 import com.alibaba.nls.client.protocol.asr.SpeechTranscriberResponse;
 import com.dotlinea.soulecho.client.ASRClient;
+import com.dotlinea.soulecho.exception.ASRException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -197,11 +198,27 @@ public class ASRClientImpl implements ASRClient {
 
             @Override
             public void onFail(SpeechTranscriberResponse response) {
-                // 识别失败
-                String errorMessage = String.format("语音识别失败: %s (状态码: %d)",
-                        response.getStatusText(), response.getStatus());
-                logger.error(errorMessage);
-                resultFuture.completeExceptionally(new RuntimeException(errorMessage));
+                // 识别失败，使用自定义异常提供更详细的错误信息
+                int statusCode = response.getStatus();
+                String statusText = response.getStatusText();
+
+                String logMessage = String.format("语音识别失败: %s (状态码: %d)", statusText, statusCode);
+                logger.error(logMessage);
+
+                // 创建自定义异常，包含用户友好的错误提示
+                ASRException asrException = new ASRException(logMessage, statusCode, statusText);
+
+                // 根据错误类型记录不同级别的日志
+                if (asrException.isTrialExpired()) {
+                    logger.error("免费试用已到期！请访问阿里云控制台开通语音识别服务: " +
+                            "https://nls-portal.console.aliyun.com/");
+                } else if (statusCode >= 500) {
+                    logger.error("语音识别服务端错误，请稍后重试");
+                } else if (statusCode == 40000003) {
+                    logger.error("认证失败，请检查 AccessKey 配置是否正确");
+                }
+
+                resultFuture.completeExceptionally(asrException);
             }
         };
     }
