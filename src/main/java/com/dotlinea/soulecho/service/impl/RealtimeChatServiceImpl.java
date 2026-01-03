@@ -7,6 +7,7 @@ import com.dotlinea.soulecho.constants.PersonaPromptConstants;
 import com.dotlinea.soulecho.constants.RedisKeyConstants;
 import com.dotlinea.soulecho.constants.SessionAttributeKeys;
 import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
+import com.dotlinea.soulecho.exception.ASRException;
 import com.dotlinea.soulecho.factory.WebSocketMessageFactory;
 import com.dotlinea.soulecho.service.RealtimeChatService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -158,7 +159,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         RLock sessionLock = getSessionLock(sessionId);
 
         // 尝试非阻塞获取分布式锁
-        boolean lockAcquired = false;
+        boolean lockAcquired;
         try {
             lockAcquired = sessionLock.tryLock(100, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
@@ -270,9 +271,29 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                         }
                     })
                     .exceptionally(throwable -> {
-                        // 全链路异常处理
+                        // 全链路异常处理，根据异常类型给出不同的用户提示
+                        Throwable rootCause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         logger.error("会话 {} 异步处理音频消息时发生异常", sessionId, throwable);
-                        sendErrorMessage(session, "处理您的消息时发生错误，请稍后重试。");
+
+                        // 判断异常类型，给出相应的用户提示
+                        String userMessage;
+                        if (rootCause instanceof ASRException asrEx) {
+                            userMessage = asrEx.getUserFriendlyMessage();
+
+                            // 如果是免费试用过期，额外记录详细的日志
+                            if (asrEx.isTrialExpired()) {
+                                logger.error("ASR服务免费试用已到期 - 请访问阿里云控制台开通服务: " +
+                                        "https://nls-portal.console.aliyun.com/");
+                            }
+                        } else if (rootCause instanceof CompletionException && rootCause.getCause() instanceof ASRException asrEx) {
+                            // 处理嵌套的 CompletionException
+                            userMessage = asrEx.getUserFriendlyMessage();
+                        } else {
+                            // 其他未知异常，使用通用提示
+                            userMessage = "处理您的消息时发生错误，请稍后重试。";
+                        }
+
+                        sendErrorMessage(session, userMessage);
                         return null;
                     })
                     .whenComplete((result, throwable) -> {
