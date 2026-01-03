@@ -14,6 +14,7 @@ public record CharacterResponseDTO(
     String avatarUrl,
     String voiceId,
     boolean isPublic,
+    String knowledgeIndexId,
     LocalDateTime createdAt,
     LocalDateTime updatedAt
 ) {}

@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS knowledge_base (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
     character_id BIGINT NOT NULL COMMENT '关联的角色ID',
-    aliyun_file_id VARCHAR(255) NOT NULL UNIQUE COMMENT '阿里云百炼返回的文件ID',
+    aliyun_file_id VARCHAR(255) UNIQUE COMMENT '阿里云百炼返回的文件ID（允许为NULL，上传完成后回填）',
     file_name VARCHAR(500) NOT NULL COMMENT '原始文件名',
     file_size BIGINT COMMENT '文件大小（字节）',
     file_md5 VARCHAR(32) COMMENT '文件MD5值',

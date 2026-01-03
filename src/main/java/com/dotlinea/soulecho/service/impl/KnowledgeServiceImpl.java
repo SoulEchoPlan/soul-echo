@@ -6,6 +6,7 @@ import com.aliyun.teautil.models.RuntimeOptions;
 import com.dotlinea.soulecho.constants.FileStatusEnum;
 import com.dotlinea.soulecho.exception.BusinessException;
 import com.dotlinea.soulecho.exception.ErrorCode;
+import com.dotlinea.soulecho.exception.ResourceNotFoundException;
 import com.dotlinea.soulecho.service.KnowledgeService;
 import com.dotlinea.soulecho.entity.KnowledgeBase;
 import com.dotlinea.soulecho.event.KnowledgeUploadEvent;
@@ -19,8 +20,12 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.*;
 
@@ -44,17 +49,68 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Value("${bailian.workspace.id}")
     private String workspaceId;
 
-    @Value("${bailian.knowledge.index.id}")
-    private String indexId;
-
     @Value("${soul-echo.file.upload-path}")
     private String uploadPath;
+
+    /**
+     * 解析后的绝对路径，在应用启动时初始化
+     */
+    private Path resolvedUploadPath;
 
     private final Client bailianClient;
     private final OkHttpClient httpClient;
     private final KnowledgeBaseRepository repository;
     private final ApplicationEventPublisher eventPublisher;
     private final com.dotlinea.soulecho.repository.CharacterRepository characterRepository;
+
+    /**
+     * 初始化上传路径
+     * <p>
+     * 将配置的相对路径转换为绝对路径，确保在任何环境下都能正常工作
+     * </p>
+     */
+    @PostConstruct
+    public void initUploadPath() {
+        // 获取配置的路径
+        String configuredPath = uploadPath;
+
+        // 如果是相对路径，转换为绝对路径
+        Path path = Paths.get(configuredPath);
+        if (!path.isAbsolute()) {
+            // 相对于当前工作目录（项目根目录）
+            path = Paths.get(System.getProperty("user.dir"), configuredPath);
+        }
+
+        this.resolvedUploadPath = path.normalize();
+        logger.info("知识库上传路径初始化完成 - 配置路径: {}, 解析后的绝对路径: {}",
+                configuredPath, this.resolvedUploadPath);
+
+        // 确保目录存在
+        ensureUploadDirectoryExists();
+    }
+
+    /**
+     * 确保上传目录存在
+     */
+    private void ensureUploadDirectoryExists() {
+        try {
+            if (!Files.exists(resolvedUploadPath)) {
+                Files.createDirectories(resolvedUploadPath);
+                logger.info("知识库上传目录已创建: {}", resolvedUploadPath);
+            } else {
+                logger.info("知识库上传目录已存在: {}", resolvedUploadPath);
+            }
+
+            // 验证目录是否可写
+            if (!Files.isWritable(resolvedUploadPath)) {
+                logger.error("知识库上传目录不可写: {}", resolvedUploadPath);
+                throw new IllegalStateException("知识库上传目录不可写: " + resolvedUploadPath);
+            }
+        } catch (IOException e) {
+            logger.error("创建知识库上传目录失败: {}", resolvedUploadPath, e);
+            throw new IllegalStateException("创建知识库上传目录失败: " + resolvedUploadPath, e);
+        }
+    }
 
     @Override
     public List<String> search(String characterName, String query) {
@@ -97,6 +153,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
      */
     @Override
     public Map<String, Object> uploadDocument(Long characterId, MultipartFile file) {
+        // === 步骤0: 校验角色是否存在 ===
+        if (!characterRepository.existsById(characterId)) {
+            logger.warn("角色不存在 - 角色ID: {}", characterId);
+            throw new ResourceNotFoundException("角色不存在: " + characterId);
+        }
+
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.KNOWLEDGE_FILE_EMPTY);
         }
@@ -109,19 +171,28 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     characterId, originalFileName, fileSize);
 
             // === 步骤1: 保存文件到本地临时目录 ===
-            var uploadDir = new java.io.File(uploadPath);
-            if (!uploadDir.exists() && !uploadDir.mkdirs()) {
-                throw new BusinessException(ErrorCode.KNOWLEDGE_UPLOAD_FAILED, "无法创建上传目录");
-            }
+            // 使用在 @PostConstruct 中已经初始化好的绝对路径
+            java.io.File uploadDir = resolvedUploadPath.toFile();
+
+            logger.info("使用已初始化的上传路径: {}", uploadDir.getAbsolutePath());
 
             // 生成唯一文件名（UUID + 原始文件名）
             var uniqueFileName = UUID.randomUUID() + "_" + originalFileName;
-            var localFilePath = uploadPath + java.io.File.separator + uniqueFileName;
-            var localFile = new java.io.File(localFilePath);
+            java.io.File localFile = resolvedUploadPath.resolve(uniqueFileName).toFile();
+
+            logger.debug("准备保存文件到: {}", localFile.getAbsolutePath());
 
             // 保存文件到本地
-            file.transferTo(localFile);
-            logger.debug("文件已保存到本地: {}", localFilePath);
+            try {
+                file.transferTo(localFile);
+                logger.info("文件已保存到本地: {}", localFile.getAbsolutePath());
+            } catch (IOException e) {
+                logger.error("文件保存失败 - 目标路径: {}, 错误: {}", localFile.getAbsolutePath(), e.getMessage(), e);
+                throw new BusinessException(ErrorCode.KNOWLEDGE_UPLOAD_FAILED,
+                        "文件保存失败: " + e.getMessage() +
+                        "。目标路径: " + localFile.getAbsolutePath() +
+                        "。请检查磁盘空间和目录权限。");
+            }
 
             // === 步骤2: 计算文件MD5哈希值 ===
             String fileMd5;
@@ -147,7 +218,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     .source(this)
                     .knowledgeBaseId(knowledgeBase.getId())
                     .characterId(characterId)
-                    .localFilePath(localFilePath)
+                    .localFilePath(localFile.getAbsolutePath())
                     .originalFileName(originalFileName)
                     .fileMd5(fileMd5)
                     .fileSize(fileSize)
@@ -179,7 +250,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     public List<String> searchByCharacterId(Long characterId, String query) {
-        // 保留降级逻辑 - 查询失败时返回空列表
         if (query == null || query.trim().isEmpty()) {
             logger.warn("查询文本为空");
             return new ArrayList<>();
@@ -188,23 +258,36 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             logger.debug("检索知识库，角色ID: {}, 查询: {}", characterId, query);
 
-            // 1. 构建检索请求
+            // 获取角色的专属知识库索引ID
+            com.dotlinea.soulecho.entity.Character character = characterRepository.findById(characterId).orElse(null);
+            if (character == null) {
+                logger.warn("角色不存在，ID: {}", characterId);
+                return new ArrayList<>();
+            }
+
+            String knowledgeIndexId = character.getKnowledgeIndexId();
+            if (knowledgeIndexId == null || knowledgeIndexId.trim().isEmpty()) {
+                logger.warn("角色知识库索引ID为空，ID: {}", characterId);
+                return new ArrayList<>();
+            }
+
+            // 构建检索请求
             RetrieveRequest retrieveRequest = new RetrieveRequest()
-                    .setIndexId(indexId)
+                    .setIndexId(knowledgeIndexId)
                     .setQuery(query)
                     .setDenseSimilarityTopK(5)
                     .setEnableRewrite(true);
 
-            // 2. 发起调用
+            // 发起调用
             RetrieveResponse retrieveResponse = bailianClient.retrieveWithOptions(workspaceId, retrieveRequest, new HashMap<>(), new RuntimeOptions());
 
-            // 3. 校检相应基础结构
+            // 校检响应基础结构
             if (retrieveResponse == null || retrieveResponse.getBody() == null || retrieveResponse.getBody().getData() == null || retrieveResponse.getBody().getData().getNodes() == null) {
                 logger.warn("检索结果为空");
                 return new ArrayList<>();
             }
 
-            // 4. 直接使用 SDK 提供对象，不转Map
+            // 直接使用 SDK 提供对象，不转Map
             List<RetrieveResponseBody.RetrieveResponseBodyDataNodes> nodes = retrieveResponse.getBody().getData().getNodes();
             List<String> knowledgeChunks = new ArrayList<>();
 
@@ -238,9 +321,22 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         KnowledgeBase knowledgeBase = knowledgeBaseOpt.get();
 
         try {
+            // 获取角色的专属知识库索引ID
+            com.dotlinea.soulecho.entity.Character character = characterRepository.findById(knowledgeBase.getCharacterId()).orElse(null);
+            if (character == null) {
+                logger.warn("关联角色不存在，角色ID: {}", knowledgeBase.getCharacterId());
+                throw new BusinessException(ErrorCode.CHARACTER_NOT_FOUND, "关联角色不存在");
+            }
+
+            String knowledgeIndexId = character.getKnowledgeIndexId();
+            if (knowledgeIndexId == null || knowledgeIndexId.trim().isEmpty()) {
+                logger.warn("角色知识库索引ID为空，角色ID: {}", knowledgeBase.getCharacterId());
+                throw new BusinessException(ErrorCode.CHARACTER_NOT_FOUND, "角色知识库索引ID为空");
+            }
+
             // 使用SDK删除文档
             DeleteIndexDocumentRequest deleteRequest = new DeleteIndexDocumentRequest()
-                    .setIndexId(indexId)
+                    .setIndexId(knowledgeIndexId)
                     .setDocumentIds(Collections.singletonList(knowledgeBase.getAliyunFileId()));
 
             DeleteIndexDocumentResponse deleteResponse = bailianClient.deleteIndexDocumentWithOptions(workspaceId, deleteRequest, new HashMap<>(), new RuntimeOptions());

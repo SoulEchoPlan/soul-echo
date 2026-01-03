@@ -42,8 +42,12 @@ public class KnowledgeBase {
 
     /**
      * 阿里云百炼返回的文件ID
+     * <p>
+     * 允许为 null，因为业务流程是"先入库占位(UPLOADING)" -> "异步上传获取ID"
+     * 在入库时还没有阿里云文件ID，等待异步上传完成后更新
+     * </p>
      */
-    @Column(name = "aliyun_file_id", nullable = false, unique = true, length = 255)
+    @Column(name = "aliyun_file_id", unique = true)
     private String aliyunFileId;
 
     /**
@@ -74,7 +78,7 @@ public class KnowledgeBase {
     /**
      * 索引任务ID（如果有）
      */
-    @Column(name = "job_id", length = 255)
+    @Column(name = "job_id")
     private String jobId;
 
     /**
@@ -116,8 +120,12 @@ public class KnowledgeBase {
      */
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         KnowledgeBase that = (KnowledgeBase) o;
         return id != null && Objects.equals(id, that.id);
     }

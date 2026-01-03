@@ -5,6 +5,7 @@ import com.aliyun.bailian20231229.models.*;
 import com.aliyun.teautil.models.RuntimeOptions;
 import com.dotlinea.soulecho.constants.FileStatusEnum;
 import com.dotlinea.soulecho.event.KnowledgeUploadEvent;
+import com.dotlinea.soulecho.repository.CharacterRepository;
 import com.dotlinea.soulecho.repository.KnowledgeBaseRepository;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
@@ -47,9 +48,6 @@ public class KnowledgeUploadListener {
     @Value("${bailian.workspace.id}")
     private String workspaceId;
 
-    @Value("${bailian.knowledge.index.id}")
-    private String indexId;
-
     @Autowired
     private Client bailianClient;
 
@@ -58,6 +56,9 @@ public class KnowledgeUploadListener {
 
     @Autowired
     private KnowledgeBaseRepository repository;
+
+    @Autowired
+    private CharacterRepository characterRepository;
 
     /**
      * 处理知识库上传事件
@@ -75,12 +76,26 @@ public class KnowledgeUploadListener {
         log.info("开始处理知识库上传事件: {}", event);
 
         var knowledgeBaseId = event.getKnowledgeBaseId();
+        var characterId = event.getCharacterId();
         var localFilePath = event.getLocalFilePath();
         var originalFileName = event.getOriginalFileName();
         var fileMd5 = event.getFileMd5();
         var fileSize = event.getFileSize();
 
         try {
+            // 获取角色的专属知识库索引ID
+            var character = characterRepository.findById(characterId).orElse(null);
+            if (character == null) {
+                throw new RuntimeException("角色不存在，ID: " + characterId);
+            }
+
+            var knowledgeIndexId = character.getKnowledgeIndexId();
+            if (knowledgeIndexId == null || knowledgeIndexId.trim().isEmpty()) {
+                throw new RuntimeException("角色知识库索引ID为空，角色ID: " + characterId);
+            }
+
+            log.info("使用角色专属知识库索引 - 角色ID: {}, 索引ID: {}", characterId, knowledgeIndexId);
+
             // === 步骤1: 申请文件上传租约 ===
             log.debug("步骤1: 申请文件上传租约 - {}", originalFileName);
 
@@ -141,7 +156,7 @@ public class KnowledgeUploadListener {
             log.debug("步骤4: 提交索引构建任务 - FileId: {}", aliyunFileId);
 
             var indexRequest = new SubmitIndexAddDocumentsJobRequest()
-                    .setIndexId(indexId)
+                    .setIndexId(knowledgeIndexId)
                     .setSourceType("DATA_CENTER_FILE")
                     .setDocumentIds(Collections.singletonList(aliyunFileId));
 

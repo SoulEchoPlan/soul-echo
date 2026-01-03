@@ -68,6 +68,12 @@ public class Character {
     private boolean isPublic = true;
 
     /**
+     * 角色专属知识库索引ID（阿里云百炼）
+     */
+    @Column(name = "knowledge_index_id", unique = true, length = 255)
+    private String knowledgeIndexId;
+
+    /**
      * 创建时间，自动生成
      */
     @CreationTimestamp
