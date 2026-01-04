@@ -14,17 +14,14 @@ import com.dotlinea.soulecho.exception.ResourceNotFoundException;
 import com.dotlinea.soulecho.repository.CharacterRepository;
 import com.dotlinea.soulecho.service.CharacterService;
 import com.dotlinea.soulecho.service.RealtimeChatService;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -35,7 +32,7 @@ import java.util.stream.Collectors;
  * @since v1.0.0
  */
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 @Transactional
 public class CharacterServiceImpl implements CharacterService {
 
@@ -105,9 +102,10 @@ public class CharacterServiceImpl implements CharacterService {
     private String createKnowledgeIndex(String characterName) {
         try {
             CreateIndexRequest request = new CreateIndexRequest()
-                    .setIndexName(characterName + "-知识库")
-                    .setType("qa") // 问答类型
-                    .setDescription("角色 " + characterName + " 的专属知识库");
+                    .setName(characterName + "-知识库")
+                    .setStructureType("unstructured")
+                    .setDescription("角色 " + characterName + " 的专属知识库")
+                    .setSinkType("BUILT_IN");
 
             CreateIndexResponse response = bailianClient.createIndexWithOptions(
                     workspaceId,
@@ -116,8 +114,8 @@ public class CharacterServiceImpl implements CharacterService {
                     new RuntimeOptions()
             );
 
-            if (response != null && response.getBody() != null && response.getBody().getIndexId() != null) {
-                String indexId = response.getBody().getIndexId();
+            if (response != null && response.getBody() != null && response.getBody().getData() != null) {
+                String indexId = response.getBody().getData().getId();
                 logger.info("知识库索引创建成功: {}", indexId);
                 return indexId;
             } else {
@@ -302,9 +300,7 @@ public class CharacterServiceImpl implements CharacterService {
             StringBuilder responseBuilder = new StringBuilder();
 
             // 调用流式方法，累积完整响应
-            chatService.processTextChatStream(personaPrompt, message, sessionId, chunk -> {
-                responseBuilder.append(chunk);
-            });
+            chatService.processTextChatStream(personaPrompt, message, sessionId, responseBuilder::append);
 
             return responseBuilder.toString();
         } catch (Exception llmEx) {

@@ -47,7 +47,7 @@ public class KnowledgeBase {
      * 在入库时还没有阿里云文件ID，等待异步上传完成后更新
      * </p>
      */
-    @Column(name = "aliyun_file_id", unique = true)
+    @Column(name = "aliyun_file_id", unique = true, nullable = true)
     private String aliyunFileId;
 
     /**
