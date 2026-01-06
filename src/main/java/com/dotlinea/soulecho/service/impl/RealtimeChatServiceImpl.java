@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 /**
  * 实时聊天服务实现类
@@ -189,6 +190,13 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                             return;
                         }
 
+                        // 新增：严格校验 ASR 结果有效性，过滤幻觉
+                        String filteredText = recognizedText.trim();
+                        if (filteredText.length() < 2 && isPunctuationOnly(filteredText)) {
+                            logger.warn("会话 {} ASR 返回无效文本（仅有标点符号或过短）: {}，忽略处理", sessionId, filteredText);
+                            return;
+                        }
+
                         logger.info("会话 {} 识别结果: {}", sessionId, recognizedText);
 
                         // === 步骤2: 发送用户转写文本回显 ===
@@ -200,70 +208,15 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
                         // === 步骤4: LLM流式对话生成 + 句子级流式TTS ===
                         logger.debug("会话 {} 开始 LLM 流式对话生成", sessionId);
-                        StringBuilder sentenceBuffer = new StringBuilder();
 
                         try {
-                            processTextChatStream(personaPrompt, recognizedText, sessionId, characterName, chunk -> {
-                                sentenceBuffer.append(chunk);
+                            // 从 session 读取 TTS 状态，不硬编码
+                            Boolean ttsEnabled = (Boolean) session.getAttributes().get(SessionAttributeKeys.TTS_ENABLED);
+                            // 如果未设置，默认开启 TTS（根据用户需求）
+                            boolean actualTtsState = (ttsEnabled != null) ? ttsEnabled : true;
 
-                                // 使用正则表达式提取完整句子
-                                String bufferedText = sentenceBuffer.toString();
-                                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("[^.!?。！？]+[.!?。！？]");
-                                java.util.regex.Matcher matcher = pattern.matcher(bufferedText);
-
-                                int lastMatchEnd = 0;
-                                while (matcher.find()) {
-                                    String completeSentence = matcher.group();
-                                    lastMatchEnd = matcher.end();
-
-                                    logger.debug("会话 {} 提取完整句子: {}", sessionId, completeSentence);
-
-                                    // 立即将完整句子发送给前端显示
-                                    try {
-                                        if (session.isOpen()) {
-                                            session.sendMessage(new TextMessage(completeSentence));
-                                            logger.trace("向会话 {} 发送句子文本: {}", sessionId, completeSentence);
-                                        }
-                                    } catch (IOException e) {
-                                        logger.error("向会话 {} 发送句子文本失败", sessionId, e);
-                                    }
-
-                                    // 立即将完整句子送去TTS合成
-                                    try {
-                                        ttsClient.synthesize(completeSentence, audioChunk -> sendAudioResponse(session, audioChunk));
-                                    } catch (Exception e) {
-                                        logger.error("会话 {} TTS合成句子失败: {}", sessionId, completeSentence, e);
-                                    }
-                                }
-
-                                // 移除已处理的句子，保留未完成的部分
-                                if (lastMatchEnd > 0) {
-                                    sentenceBuffer.delete(0, lastMatchEnd);
-                                }
-                            });
-
-                            // 处理剩余的不成句内容
-                            String remainingText = sentenceBuffer.toString().trim();
-                            if (!remainingText.isEmpty()) {
-                                logger.debug("会话 {} 处理剩余文本: {}", sessionId, remainingText);
-
-                                // 发送剩余文本给前端
-                                try {
-                                    if (session.isOpen()) {
-                                        session.sendMessage(new TextMessage(remainingText));
-                                    }
-                                } catch (IOException e) {
-                                    logger.error("向会话 {} 发送剩余文本失败", sessionId, e);
-                                }
-
-                                // TTS合成剩余文本
-                                try {
-                                    ttsClient.synthesize(remainingText, audioChunk -> sendAudioResponse(session, audioChunk));
-                                } catch (Exception e) {
-                                    logger.error("会话 {} TTS合成剩余文本失败", sessionId, e);
-                                }
-                            }
-
+                            logger.debug("会话 {} 从 Session 读取 TTS 状态: {}", sessionId, actualTtsState);
+                            streamLlmResponseWithTts(personaPrompt, recognizedText, sessionId, characterName, actualTtsState, session);
                             logger.info("会话 {} 完整音频处理流程结束", sessionId);
                         } catch (Exception e) {
                             logger.error("会话 {} LLM流式对话处理失败", sessionId, e);
@@ -370,6 +323,236 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             logger.error("会话 {} 流式文本对话处理失败", sessionId, e);
             if (chunkConsumer != null) {
                 chunkConsumer.accept("抱歉，处理您的消息时遇到了问题。");
+            }
+        }
+    }
+
+    @Override
+    public void processTextChatStream(String personaPrompt, String userInput, String sessionId,
+                                     String characterName, boolean enableTts,
+                                     java.util.function.Consumer<String> chunkConsumer) {
+        if (userInput == null || userInput.trim().isEmpty()) {
+            return;
+        }
+
+        try {
+            // 获取或创建会话历史
+            List<String> history = getSessionHistory(sessionId);
+
+            // StringBuilder 用于累积完整的 LLM 响应
+            StringBuilder fullResponse = new StringBuilder();
+
+            // 句子级 TTS 缓冲区（仅当 enableTts=true 时使用）
+            StringBuilder sentenceBuffer = enableTts ? new StringBuilder() : null;
+            java.util.regex.Pattern pattern = enableTts
+                ? java.util.regex.Pattern.compile("[^.!?。！？]+[.!?。！？]")
+                : null;
+
+            // 定义 LLM 文本块处理器
+            Consumer<String> llmChunkHandler = chunk -> {
+                // 1. 累积完整响应
+                fullResponse.append(chunk);
+
+                // 2. 透传给调用方的 chunkConsumer（兼容原有行为）
+                if (chunkConsumer != null) {
+                    chunkConsumer.accept(chunk);
+                }
+
+                // 3. 如果启用 TTS，检测完整句子并触发语音合成
+                // ⚠️ 注意：此方法无 session 参数，因此无法发送音频响应或错误通知
+                //    此处仅展示逻辑框架，实际使用中应通过 WebSocket 调用 streamLlmResponseWithTts
+                if (enableTts && sentenceBuffer != null && pattern != null) {
+                    logger.warn("processTextChatStream(Consumer, enableTts=true) 模式下不支持 TTS，" +
+                              "请通过 WebSocket 使用 streamLlmResponseWithTts 方法");
+                }
+            };
+
+            // 调用 LLM 流式生成
+            if (characterName != null && !characterName.trim().isEmpty()) {
+                llmClient.chatStream(personaPrompt, history, userInput, characterName, llmChunkHandler);
+            } else {
+                llmClient.chatStream(personaPrompt, history, userInput, llmChunkHandler);
+            }
+
+            // 更新会话历史
+            String response = fullResponse.toString();
+            if (!response.trim().isEmpty()) {
+                history.add(userInput);
+                history.add(response);
+
+                // 限制历史长度
+                if (history.size() > 20) {
+                    history.subList(0, history.size() - 20).clear();
+                }
+            }
+
+        } catch (Exception e) {
+            logger.error("会话 {} 流式文本对话处理失败", sessionId, e);
+            if (chunkConsumer != null) {
+                chunkConsumer.accept("抱歉，处理您的消息时遇到了问题。");
+            }
+        }
+    }
+
+    @Override
+    public void handleTextRequest(WebSocketSession session, String userInput, boolean enableTts) {
+        // 从 session 中获取角色信息
+        String personaPrompt = (String) session.getAttributes().get(SessionAttributeKeys.PERSONA_PROMPT);
+        String characterName = (String) session.getAttributes().get(SessionAttributeKeys.CHARACTER_NAME);
+
+        // 直接调用流式处理方法（支持 TTS）
+        streamLlmResponseWithTts(personaPrompt, userInput, session.getId(), characterName, enableTts, session);
+    }
+
+    /**
+     * 流式生成 LLM 响应并支持可选的 TTS 语音合成
+     * <p>
+     * 核心逻辑：
+     * 1. 调用 LLM 流式生成文本
+     * 2. 实时将文本块推送给前端
+     * 3. 如果 enableTts=true，累积文本并检测完整句子，调用 TTS
+     * 4. TTS 失败时只记录日志并发送错误通知，不阻断文本生成
+     * </p>
+     *
+     * @param personaPrompt 角色设定
+     * @param userInput 用户输入
+     * @param sessionId 会话ID
+     * @param characterName 角色名称（用于知识库检索，可为 null）
+     * @param enableTts 是否启用 TTS 语音合成
+     * @param session WebSocket 会话（用于发送响应，enableTts=true 时必填）
+     */
+    private void streamLlmResponseWithTts(
+            String personaPrompt,
+            String userInput,
+            String sessionId,
+            String characterName,
+            boolean enableTts,
+            WebSocketSession session) {
+
+        if (userInput == null || userInput.trim().isEmpty()) {
+            return;
+        }
+
+        // 标志位：记录 TTS 是否失败
+        final boolean[] ttsFailed = {false};
+
+        try {
+            // 获取或创建会话历史
+            List<String> history = getSessionHistory(sessionId);
+            StringBuilder fullResponse = new StringBuilder();
+
+            // 句子级 TTS 缓冲区（仅当 enableTts=true 时使用）
+            StringBuilder sentenceBuffer = enableTts ? new StringBuilder() : null;
+            java.util.regex.Pattern pattern = enableTts
+                ? java.util.regex.Pattern.compile("[^.!?。！？]+[.!?。！？]")
+                : null;
+
+            // 定义 LLM 文本块处理器
+            Consumer<String> llmChunkHandler = chunk -> {
+                // 检查 TTS 是否已经失败
+                if (ttsFailed[0]) {
+                    logger.debug("会话 {} TTS 已失败，停止发送后续文本块", sessionId);
+                    return; // 停止处理后续文本
+                }
+
+                // 1. 累积完整响应（用于更新会话历史）
+                fullResponse.append(chunk);
+
+                // 2. 实时推送文本块到前端
+                try {
+                    if (session != null && session.isOpen()) {
+                        session.sendMessage(new TextMessage(chunk));
+                        logger.trace("向会话 {} 发送文本块: {}", sessionId, chunk);
+                    }
+                } catch (IOException e) {
+                    logger.error("向会话 {} 发送文本块失败", sessionId, e);
+                }
+
+                // 3. 如果启用 TTS，检测完整句子并触发语音合成
+                if (enableTts && sentenceBuffer != null && pattern != null && !ttsFailed[0]) {
+                    sentenceBuffer.append(chunk);
+                    String bufferedText = sentenceBuffer.toString();
+                    java.util.regex.Matcher matcher = pattern.matcher(bufferedText);
+
+                    int lastMatchEnd = 0;
+                    while (matcher.find() && !ttsFailed[0]) {
+                        String completeSentence = matcher.group();
+                        lastMatchEnd = matcher.end();
+
+                        logger.debug("会话 {} 提取完整句子: {}", sessionId, completeSentence);
+
+                        // TTS 异常处理：失败时标记状态并停止后续处理
+                        try {
+                            ttsClient.synthesize(completeSentence, audioChunk ->
+                                sendAudioResponse(session, audioChunk)
+                            );
+                        } catch (Exception e) {
+                            logger.error("会话 {} TTS 合成句子失败: {}", sessionId, completeSentence, e);
+                            // 标记 TTS 失败，停止后续处理
+                            ttsFailed[0] = true;
+                            // 向前端发送 TTS 错误通知
+                            sendTtsErrorMessage(session, "语音合成服务已中断，请稍后再试");
+                        }
+                    }
+
+                    // 移除已处理的句子，保留未完成的部分
+                    if (lastMatchEnd > 0) {
+                        sentenceBuffer.delete(0, lastMatchEnd);
+                    }
+                }
+            };
+
+            // 调用 LLM 流式生成
+            if (characterName != null && !characterName.trim().isEmpty()) {
+                llmClient.chatStream(personaPrompt, history, userInput, characterName, llmChunkHandler);
+            } else {
+                llmClient.chatStream(personaPrompt, history, userInput, llmChunkHandler);
+            }
+
+            // 处理剩余的不成句内容（TTS 模式下）
+            if (enableTts && sentenceBuffer != null && !ttsFailed[0]) {
+                String remainingText = sentenceBuffer.toString().trim();
+                if (!remainingText.isEmpty()) {
+                    logger.debug("会话 {} 处理剩余文本: {}", sessionId, remainingText);
+
+                    try {
+                        ttsClient.synthesize(remainingText, audioChunk ->
+                            sendAudioResponse(session, audioChunk)
+                        );
+                    } catch (Exception e) {
+                        logger.error("会话 {} TTS 合成剩余文本失败", sessionId, e);
+                        ttsFailed[0] = true;
+                        sendTtsErrorMessage(session, "语音合成服务已中断，请稍后再试");
+                    }
+                }
+            }
+
+            // 如果 TTS 失败，从历史记录中移除本次回复（避免显示不完整的对话）
+            if (ttsFailed[0]) {
+                logger.warn("会话 {} TTS 失败，不保存本次对话到历史记录", sessionId);
+            } else {
+                // 更新会话历史
+                String response = fullResponse.toString();
+                if (!response.trim().isEmpty()) {
+                    history.add(userInput);
+                    history.add(response);
+
+                    // 限制历史长度，避免内存过度使用
+                    if (history.size() > 20) {
+                        history.subList(0, history.size() - 20).clear();
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            logger.error("会话 {} 流式文本对话处理失败", sessionId, e);
+            // 向前端发送友好错误提示
+            try {
+                if (session != null && session.isOpen()) {
+                    session.sendMessage(new TextMessage("抱歉，处理您的消息时遇到了问题。"));
+                }
+            } catch (IOException ioException) {
+                logger.error("向会话 {} 发送错误提示失败", sessionId, ioException);
             }
         }
     }
@@ -497,6 +680,25 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
     }
 
     /**
+     * 发送 TTS 错误通知到前端
+     * @param session WebSocket 会话
+     * @param errorMessage 错误消息
+     */
+    private void sendTtsErrorMessage(WebSocketSession session, String errorMessage) {
+        try {
+            if (session != null && session.isOpen()) {
+                WebSocketMessageDTO messageDTO = messageFactory.createError(
+                    errorMessage, session.getId());
+                String jsonMessage = objectMapper.writeValueAsString(messageDTO);
+                session.sendMessage(new TextMessage(jsonMessage));
+                logger.debug("已向会话 {} 发送 TTS 错误通知", session.getId());
+            }
+        } catch (Exception e) {
+            logger.error("向会话 {} 发送 TTS 错误通知失败", session.getId(), e);
+        }
+    }
+
+    /**
      * 发送用户转写文本回显
      * @param session WebSocket会话
      * @param transcribedText 转写文本
@@ -579,5 +781,22 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         public void clear() {
             buffer.reset();
         }
+    }
+
+    /**
+     * 检查文本是否仅包含标点符号
+     * <p>
+     * 用于过滤 ASR 幻觉（如静音被识别为"。"）
+     * </p>
+     *
+     * @param text 待检查文本
+     * @return 如果文本为空、长度<2 且仅包含标点符号，返回 true
+     */
+    private boolean isPunctuationOnly(String text) {
+        if (text == null || text.isEmpty()) {
+            return true;
+        }
+        // 正则：仅匹配中文/英文标点符号
+        return text.matches("^[\\p{P}\\p{S}]+$");
     }
 }
