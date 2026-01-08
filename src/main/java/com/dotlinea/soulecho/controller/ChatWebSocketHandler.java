@@ -133,8 +133,10 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
                 // 尝试解析为 JSON：{"content": "用户消息", "ttsEnabled": true}
                 com.fasterxml.jackson.databind.JsonNode jsonNode = objectMapper.readTree(textPayload);
 
-                // 提取 content 字段
-                if (jsonNode.has("content")) {
+                // 优先读取 message 字段，如果不是文本（防止空对象{}）则读取 content
+                if (jsonNode.has("message") && jsonNode.get("message").isTextual()) {
+                    userInput = jsonNode.get("message").asText();
+                } else if (jsonNode.has("content")) {
                     userInput = jsonNode.get("content").asText();
                 }
 
@@ -147,7 +149,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
                 }
 
                 logger.debug("会话 {} 解析 JSON 消息成功，content: {}, ttsEnabled: {}", sessionId, userInput, ttsEnabled);
-            } catch (Exception jsonParseException) {
+            } catch (Exception e) {
                 // JSON 解析失败，回退到纯文本模式
                 userInput = textPayload;
                 ttsEnabled = false; // 纯文本模式默认不启用 TTS
