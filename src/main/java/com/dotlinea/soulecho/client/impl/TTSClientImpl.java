@@ -15,6 +15,8 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -94,10 +96,14 @@ public class TTSClientImpl implements TTSClient {
             return;
         }
 
+        // 用于记录TTS失败状态和错误信息
+        AtomicBoolean ttsFailed = new AtomicBoolean(false);
+        AtomicReference<String> errorMessage = new AtomicReference<>(null);
+
         SpeechSynthesizer synthesizer = null;
         try {
             // 创建语音合成器
-            synthesizer = new SpeechSynthesizer(nlsClient, getSynthesizerListener(audioChunkConsumer));
+            synthesizer = new SpeechSynthesizer(nlsClient, getSynthesizerListener(audioChunkConsumer, ttsFailed, errorMessage));
 
             // 设置合成参数
             synthesizer.setAppKey(appKey);
@@ -121,7 +127,15 @@ public class TTSClientImpl implements TTSClient {
 
         } catch (Exception e) {
             logger.error("语音合成过程中发生异常", e);
+            throw new RuntimeException("TTS合成异常: " + e.getMessage(), e);
         } finally {
+            // 检查TTS是否失败，如果失败则抛出异常让上层处理
+            if (ttsFailed.get()) {
+                String error = errorMessage.get();
+                logger.error("TTS合成失败，向上层抛出异常: {}", error);
+                throw new RuntimeException(error);
+            }
+
             // 清理资源
             if (synthesizer != null) {
                 try {
@@ -136,9 +150,14 @@ public class TTSClientImpl implements TTSClient {
     /**
      * 创建语音合成监听器
      * @param audioChunkConsumer 音频数据消费者
+     * @param ttsFailed 失败标志（AtomicBoolean）
+     * @param errorMessage 错误信息（AtomicReference）
      * @return 合成监听器
      */
-    private SpeechSynthesizerListener getSynthesizerListener(Consumer<ByteBuffer> audioChunkConsumer) {
+    private SpeechSynthesizerListener getSynthesizerListener(
+            Consumer<ByteBuffer> audioChunkConsumer,
+            AtomicBoolean ttsFailed,
+            AtomicReference<String> errorMessage) {
         return new SpeechSynthesizerListener() {
             @Override
             public void onComplete(SpeechSynthesizerResponse response) {
@@ -156,10 +175,14 @@ public class TTSClientImpl implements TTSClient {
 
             @Override
             public void onFail(SpeechSynthesizerResponse response) {
-                // 合成失败
-                String errorMessage = String.format("语音合成失败: %s (状态码: %d)",
+                // 合成失败，记录失败状态和错误信息
+                String errorMsg = String.format("语音合成失败: %s (状态码: %d)",
                         response.getStatusText(), response.getStatus());
-                logger.error(errorMessage);
+                logger.error(errorMsg);
+
+                // 设置失败标志，让上层 finally 块检测到
+                ttsFailed.set(true);
+                errorMessage.set(errorMsg);
             }
         };
     }

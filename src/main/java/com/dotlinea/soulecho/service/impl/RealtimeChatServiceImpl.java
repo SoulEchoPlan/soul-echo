@@ -3,6 +3,7 @@ package com.dotlinea.soulecho.service.impl;
 import com.dotlinea.soulecho.client.ASRClient;
 import com.dotlinea.soulecho.client.LLMClient;
 import com.dotlinea.soulecho.client.TTSClient;
+import com.dotlinea.soulecho.constants.MessageTypeConstants;
 import com.dotlinea.soulecho.constants.PersonaPromptConstants;
 import com.dotlinea.soulecho.constants.RedisKeyConstants;
 import com.dotlinea.soulecho.constants.SessionAttributeKeys;
@@ -433,8 +434,10 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             return;
         }
 
-        // 标志位：记录 TTS 是否失败
-        final boolean[] ttsFailed = {false};
+        // TTS 熔断标志位：记录 TTS 服务是否已损坏
+        final boolean[] ttsCircuitBreaker = {false};
+        // 标志位：记录是否已发送过错误通知（避免重复发送）
+        final boolean[] errorSent = {false};
 
         try {
             // 获取或创建会话历史
@@ -449,16 +452,10 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
             // 定义 LLM 文本块处理器
             Consumer<String> llmChunkHandler = chunk -> {
-                // 检查 TTS 是否已经失败
-                if (ttsFailed[0]) {
-                    logger.debug("会话 {} TTS 已失败，停止发送后续文本块", sessionId);
-                    return; // 停止处理后续文本
-                }
-
                 // 1. 累积完整响应（用于更新会话历史）
                 fullResponse.append(chunk);
 
-                // 2. 实时推送文本块到前端
+                // 2. 实时推送文本块到前端（无论 TTS 是否失败都要发送文字）
                 try {
                     if (session != null && session.isOpen()) {
                         session.sendMessage(new TextMessage(chunk));
@@ -469,29 +466,44 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                 }
 
                 // 3. 如果启用 TTS，检测完整句子并触发语音合成
-                if (enableTts && sentenceBuffer != null && pattern != null && !ttsFailed[0]) {
+                if (enableTts && sentenceBuffer != null && pattern != null && !ttsCircuitBreaker[0]) {
                     sentenceBuffer.append(chunk);
                     String bufferedText = sentenceBuffer.toString();
                     java.util.regex.Matcher matcher = pattern.matcher(bufferedText);
 
                     int lastMatchEnd = 0;
-                    while (matcher.find() && !ttsFailed[0]) {
+                    while (matcher.find() && !ttsCircuitBreaker[0]) {
                         String completeSentence = matcher.group();
                         lastMatchEnd = matcher.end();
 
                         logger.debug("会话 {} 提取完整句子: {}", sessionId, completeSentence);
 
-                        // TTS 异常处理：失败时标记状态并停止后续处理
+                        // 强制异常隔离：TTS 异常不阻断 LLM 文本流式推送
                         try {
                             ttsClient.synthesize(completeSentence, audioChunk ->
                                 sendAudioResponse(session, audioChunk)
                             );
                         } catch (Exception e) {
-                            logger.error("会话 {} TTS 合成句子失败: {}", sessionId, completeSentence, e);
-                            // 标记 TTS 失败，停止后续处理
-                            ttsFailed[0] = true;
-                            // 向前端发送 TTS 错误通知
-                            sendTtsErrorMessage(session, "语音合成服务已中断，请稍后再试");
+                            // 触发熔断
+                            ttsCircuitBreaker[0] = true;
+                            // 只在第一次熔断时发送错误通知（避免刷屏）
+                            if (!errorSent[0]) {
+                                logger.warn("会话 {} TTS 合成失败，已触发熔断并切换至文字模式: {}", sessionId, completeSentence, e);
+                                errorSent[0] = true;
+                                // 构造标准错误消息并发送
+                                try {
+                                    WebSocketMessageDTO errorMessage = messageFactory.createErrorWithCode(
+                                        "语音服务已到期，已切换至纯文字模式",
+                                        MessageTypeConstants.TTS_BROKEN,
+                                        sessionId
+                                    );
+                                    String jsonMessage = objectMapper.writeValueAsString(errorMessage);
+                                    session.sendMessage(new TextMessage(jsonMessage));
+                                } catch (IOException ioException) {
+                                    logger.error("向会话 {} 发送 TTS 熔断通知失败", sessionId, ioException);
+                                }
+                            }
+                            // 绝对禁止再次 throw e，吞掉异常让代码继续执行
                         }
                     }
 
@@ -510,25 +522,43 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             }
 
             // 处理剩余的不成句内容（TTS 模式下）
-            if (enableTts && sentenceBuffer != null && !ttsFailed[0]) {
+            if (enableTts && sentenceBuffer != null && !ttsCircuitBreaker[0]) {
                 String remainingText = sentenceBuffer.toString().trim();
                 if (!remainingText.isEmpty()) {
                     logger.debug("会话 {} 处理剩余文本: {}", sessionId, remainingText);
 
+                    // 强制异常隔离：TTS 异常不阻断 LLM 文本流式推送
                     try {
                         ttsClient.synthesize(remainingText, audioChunk ->
                             sendAudioResponse(session, audioChunk)
                         );
                     } catch (Exception e) {
-                        logger.error("会话 {} TTS 合成剩余文本失败", sessionId, e);
-                        ttsFailed[0] = true;
-                        sendTtsErrorMessage(session, "语音合成服务已中断，请稍后再试");
+                        // 触发熔断
+                        ttsCircuitBreaker[0] = true;
+                        // 只在第一次熔断时发送错误通知（避免刷屏）
+                        if (!errorSent[0]) {
+                            logger.warn("会话 {} TTS 合成剩余文本失败，已触发熔断并切换至文字模式", sessionId, e);
+                            errorSent[0] = true;
+                            // 构造标准错误消息并发送
+                            try {
+                                WebSocketMessageDTO errorMessage = messageFactory.createErrorWithCode(
+                                    "语音服务已到期，已切换至纯文字模式",
+                                    MessageTypeConstants.TTS_BROKEN,
+                                    sessionId
+                                );
+                                String jsonMessage = objectMapper.writeValueAsString(errorMessage);
+                                session.sendMessage(new TextMessage(jsonMessage));
+                            } catch (IOException ioException) {
+                                logger.error("向会话 {} 发送 TTS 熔断通知失败", sessionId, ioException);
+                            }
+                        }
+                        // 绝对禁止再次 throw e，吞掉异常让代码继续执行
                     }
                 }
             }
 
             // 如果 TTS 失败，从历史记录中移除本次回复（避免显示不完整的对话）
-            if (ttsFailed[0]) {
+            if (ttsCircuitBreaker[0]) {
                 logger.warn("会话 {} TTS 失败，不保存本次对话到历史记录", sessionId);
             } else {
                 // 更新会话历史

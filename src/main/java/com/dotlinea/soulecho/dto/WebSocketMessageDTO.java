@@ -32,6 +32,11 @@ public class WebSocketMessageDTO {
     private String content;
 
     /**
+     * 错误码（可选，用于标识具体的错误类型）
+     */
+    private String code;
+
+    /**
      * 时间戳
      */
     private Long timestamp;
