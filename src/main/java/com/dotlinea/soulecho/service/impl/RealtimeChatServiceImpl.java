@@ -53,7 +53,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      * 语音端点检测静默超时时间 (毫秒)
      * 如果在此时间内没有收到新的音频数据，则认为用户说话结束
      */
-    private static final long SILENCE_TIMEOUT_MS = 500;
+    private static final long SILENCE_TIMEOUT_MS = 1200;
 
     private final ASRClient asrClient;
     private final LLMClient llmClient;
@@ -172,8 +172,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         }
 
         if (!lockAcquired) {
-            logger.warn("会话 {} 正在处理消息，拒绝本次请求", sessionId);
-            sendErrorMessage(session, "您的上一条消息正在处理中，请稍后再试");
+            logger.warn("检测到语音片段重叠，忽略本次尾部数据");
             return;
         }
 
