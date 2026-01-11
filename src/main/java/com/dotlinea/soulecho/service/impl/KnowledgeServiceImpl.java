@@ -234,7 +234,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             result.put("fileName", originalFileName);
             result.put("fileSize", fileSize);
             result.put("status", FileStatusEnum.UPLOADING.getCode());
-            result.put("uploadTime", knowledgeBase.getCreatedAt());
+            result.put("uploadTime", knowledgeBase.getGmtCreate());
             result.put("message", "文件上传任务已提交，正在异步处理中");
 
             logger.info("文件上传请求处理完成，异步任务已启动 - ID: {}", knowledgeBase.getId());
@@ -368,7 +368,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             logger.debug("获取角色 {} 的文档列表", characterId);
 
-            List<KnowledgeBase> knowledgeBases = repository.findByCharacterIdOrderByCreatedAtDesc(characterId);
+            List<KnowledgeBase> knowledgeBases = repository.findByCharacterIdOrderByGmtCreateDesc(characterId);
             List<Map<String, Object>> documents = new ArrayList<>();
 
             for (KnowledgeBase kb : knowledgeBases) {
@@ -396,7 +396,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     status = FileStatusEnum.ACTIVE.getCode();
                 }
                 doc.put("status", status);
-                doc.put("uploadTime", kb.getCreatedAt());
+                doc.put("uploadTime", kb.getGmtCreate());
                 documents.add(doc);
             }
 
