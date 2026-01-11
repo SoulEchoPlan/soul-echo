@@ -40,14 +40,14 @@ class WebSocketMessageDTOTest {
     void testAllArgsConstructor() {
         // 测试全参构造函数
         WebSocketMessageDTO dto = new WebSocketMessageDTO(
-            "type", "content", "ERR-001", 1234567890L, "sessionId"
+            "type", "content", "ERR-001", 1234567890L, "session-123"
         );
 
         assertEquals("type", dto.getType());
         assertEquals("content", dto.getContent());
         assertEquals("ERR-001", dto.getCode());
         assertEquals(1234567890L, dto.getTimestamp());
-        assertEquals("sessionId", dto.getSessionId());
+        assertEquals("session-123", dto.getSessionId());
     }
 
     @Test
@@ -81,7 +81,7 @@ class WebSocketMessageDTOTest {
     void testJsonSerializationWithNonNullValues() throws JsonProcessingException {
         // 测试包含非空值的 JSON 序列化
         WebSocketMessageDTO dto = new WebSocketMessageDTO(
-            "message-type", "Hello World", System.currentTimeMillis(), "session-123"
+            "message-type", "Hello World", null, System.currentTimeMillis(), "session-123"
         );
 
         String json = objectMapper.writeValueAsString(dto);
@@ -91,6 +91,8 @@ class WebSocketMessageDTOTest {
         assertTrue(json.contains("\"content\":\"Hello World\""));
         assertTrue(json.contains("\"sessionId\":\"session-123\""));
         assertTrue(json.contains("\"timestamp\""));
+        // code 为 null，不应该出现在 JSON 中
+        assertFalse(json.contains("\"code\""));
     }
 
     @Test
