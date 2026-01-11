@@ -88,12 +88,15 @@ public class ASRClientImpl implements ASRClient {
         var resultFuture = new CompletableFuture<String>();
         var fullText = new StringBuilder();
 
+        // 添加CountDownLatch用于等待回调完成
+        var callbackLatch = new java.util.concurrent.CountDownLatch(1);
+
         // 在独立线程中执行音频发送逻辑，避免阻塞调用线程
         CompletableFuture.runAsync(() -> {
             SpeechTranscriber transcriber = null;
             try {
                 // 创建实时语音识别对象
-                transcriber = new SpeechTranscriber(nlsClient, getTranscriberListener(resultFuture, fullText));
+                transcriber = new SpeechTranscriber(nlsClient, getTranscriberListener(resultFuture, fullText, callbackLatch));
 
                 // 设置识别参数
                 transcriber.setAppKey(appKey);
@@ -130,6 +133,12 @@ public class ASRClientImpl implements ASRClient {
                 // 清理资源
                 if (transcriber != null) {
                     try {
+                        // 等待回调完成（最多2秒）
+                        logger.debug("等待ASR回调完成...");
+                        boolean completed = callbackLatch.await(2, java.util.concurrent.TimeUnit.SECONDS);
+                        if (!completed) {
+                            logger.warn("ASR回调等待超时（2秒），强制关闭transcriber");
+                        }
                         transcriber.close();
                     } catch (Exception e) {
                         logger.warn("关闭 SpeechTranscriber 时发生异常", e);
@@ -156,26 +165,29 @@ public class ASRClientImpl implements ASRClient {
      * 创建语音识别监听器
      * @param resultFuture 用于传递识别结果的 Future
      * @param fullText 用于累积完整文本的 StringBuilder
+     * @param callbackLatch 用于通知回调完成的 CountDownLatch
      * @return 识别监听器
      */
     private SpeechTranscriberListener getTranscriberListener(
             CompletableFuture<String> resultFuture,
-            StringBuilder fullText) {
+            StringBuilder fullText,
+            java.util.concurrent.CountDownLatch callbackLatch) {
         return new SpeechTranscriberListener() {
             @Override
             public void onTranscriberStart(SpeechTranscriberResponse response) {
-                logger.debug("实时语音识别会话开始，TaskId: {}", response.getTaskId());
+                logger.info("ASR onTranscriberStart - TaskId: {}", response.getTaskId());
             }
 
             @Override
             public void onSentenceBegin(SpeechTranscriberResponse response) {
-                logger.trace("句子开始: Time={}", response.getTransSentenceTime());
+                logger.info("ASR onSentenceBegin - Time={}", response.getTransSentenceTime());
             }
 
             @Override
             public void onSentenceEnd(SpeechTranscriberResponse response) {
                 // 句子结束，累积文本
                 String sentenceText = response.getTransSentenceText();
+                logger.info("ASR onSentenceEnd - 文本: '{}', fullText长度: {}", sentenceText, fullText.length());
                 if (sentenceText != null && !sentenceText.isEmpty()) {
                     fullText.append(sentenceText);
                     logger.debug("句子识别结果: {}", sentenceText);
@@ -192,8 +204,10 @@ public class ASRClientImpl implements ASRClient {
             public void onTranscriptionComplete(SpeechTranscriberResponse response) {
                 // 识别完成，返回最终结果
                 String finalText = fullText.toString();
-                logger.debug("识别最终结果: {}", finalText);
+                logger.info("ASR onTranscriptionComplete - 最终结果: '{}', 长度: {}", finalText, finalText.length());
                 resultFuture.complete(finalText);
+                // 通知回调完成
+                callbackLatch.countDown();
             }
 
             @Override
@@ -219,6 +233,8 @@ public class ASRClientImpl implements ASRClient {
                 }
 
                 resultFuture.completeExceptionally(asrException);
+                // 通知回调完成（即使失败也要释放锁）
+                callbackLatch.countDown();
             }
         };
     }

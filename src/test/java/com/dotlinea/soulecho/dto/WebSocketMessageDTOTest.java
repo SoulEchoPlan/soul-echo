@@ -40,11 +40,12 @@ class WebSocketMessageDTOTest {
     void testAllArgsConstructor() {
         // 测试全参构造函数
         WebSocketMessageDTO dto = new WebSocketMessageDTO(
-            "type", "content", 1234567890L, "sessionId"
+            "type", "content", "ERR-001", 1234567890L, "sessionId"
         );
 
         assertEquals("type", dto.getType());
         assertEquals("content", dto.getContent());
+        assertEquals("ERR-001", dto.getCode());
         assertEquals(1234567890L, dto.getTimestamp());
         assertEquals("sessionId", dto.getSessionId());
     }

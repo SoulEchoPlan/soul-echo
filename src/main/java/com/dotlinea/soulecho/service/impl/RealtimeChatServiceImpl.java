@@ -51,9 +51,16 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 语音端点检测静默超时时间 (毫秒)
-     * 如果在此时间内没有收到新的音频数据，则认为用户说话结束
+     * <p>
+     * 从1.2秒调整为1.8秒，优化语音识别体验：
+     * <ul>
+     * <li>避免用户说话短暂停顿时误判为说话结束</li>
+     * <li>给用户更自然的语音交互节奏</li>
+     * <li>减少误触发导致的锁竞争</li>
+     * </ul>
+     * </p>
      */
-    private static final long SILENCE_TIMEOUT_MS = 1200;
+    private static final long SILENCE_TIMEOUT_MS = 1800;
 
     private final ASRClient asrClient;
     private final LLMClient llmClient;
@@ -163,7 +170,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         // 尝试非阻塞获取分布式锁
         boolean lockAcquired;
         try {
-            lockAcquired = sessionLock.tryLock(100, TimeUnit.MILLISECONDS);
+            lockAcquired = sessionLock.tryLock(3000, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             logger.warn("会话 {} 尝试获取锁时被中断", sessionId);
             Thread.currentThread().interrupt();
@@ -251,9 +258,11 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                     })
                     .whenComplete((result, throwable) -> {
                         // 确保在任何情况下都释放锁
-                        if (sessionLock.isHeldByCurrentThread()) {
+                        try {
                             sessionLock.unlock();
                             logger.debug("会话 {} 释放分布式锁", sessionId);
+                        } catch (IllegalMonitorStateException e) {
+                            logger.warn("会话 {} 尝试释放未持有的锁（可能已释放）", sessionId);
                         }
                     });
 
@@ -262,8 +271,10 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             sendErrorMessage(session, "处理您的消息时发生错误，请稍后重试。");
 
             // 确保异常情况下释放锁
-            if (sessionLock.isHeldByCurrentThread()) {
+            try {
                 sessionLock.unlock();
+            } catch (IllegalMonitorStateException ex) {
+                logger.error("会话 {} 异常情况下释放锁失败", sessionId, ex);
             }
         }
     }
@@ -482,17 +493,19 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                             ttsClient.synthesize(completeSentence, audioChunk ->
                                 sendAudioResponse(session, audioChunk)
                             );
-                        } catch (Exception e) {
+                        } catch (com.dotlinea.soulecho.exception.TTSException e) {
                             // 触发熔断
                             ttsCircuitBreaker[0] = true;
                             // 只在第一次熔断时发送错误通知（避免刷屏）
                             if (!errorSent[0]) {
-                                logger.warn("会话 {} TTS 合成失败，已触发熔断并切换至文字模式: {}", sessionId, completeSentence, e);
+                                // 根据异常类型提供精确的用户提示
+                                String userMessage = e.getUserFriendlyMessage();
+                                logger.warn("会话 {} TTS 合成失败: {}", sessionId, userMessage, e);
                                 errorSent[0] = true;
                                 // 构造标准错误消息并发送
                                 try {
                                     WebSocketMessageDTO errorMessage = messageFactory.createErrorWithCode(
-                                        "语音服务已到期，已切换至纯文字模式",
+                                        userMessage,
                                         MessageTypeConstants.TTS_BROKEN,
                                         sessionId
                                     );
@@ -503,6 +516,14 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                                 }
                             }
                             // 绝对禁止再次 throw e，吞掉异常让代码继续执行
+                        } catch (Exception e) {
+                            // 其他未预期的异常
+                            logger.error("会话 {} TTS处理时发生未预期异常", sessionId, e);
+                            ttsCircuitBreaker[0] = true;
+                            if (!errorSent[0]) {
+                                errorSent[0] = true;
+                                sendErrorMessage(session, "语音服务异常，已切换至文字模式");
+                            }
                         }
                     }
 
@@ -531,17 +552,19 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                         ttsClient.synthesize(remainingText, audioChunk ->
                             sendAudioResponse(session, audioChunk)
                         );
-                    } catch (Exception e) {
+                    } catch (com.dotlinea.soulecho.exception.TTSException e) {
                         // 触发熔断
                         ttsCircuitBreaker[0] = true;
                         // 只在第一次熔断时发送错误通知（避免刷屏）
                         if (!errorSent[0]) {
-                            logger.warn("会话 {} TTS 合成剩余文本失败，已触发熔断并切换至文字模式", sessionId, e);
+                            // 根据异常类型提供精确的用户提示
+                            String userMessage = e.getUserFriendlyMessage();
+                            logger.warn("会话 {} TTS 合成剩余文本失败: {}", sessionId, userMessage, e);
                             errorSent[0] = true;
                             // 构造标准错误消息并发送
                             try {
                                 WebSocketMessageDTO errorMessage = messageFactory.createErrorWithCode(
-                                    "语音服务已到期，已切换至纯文字模式",
+                                    userMessage,
                                     MessageTypeConstants.TTS_BROKEN,
                                     sessionId
                                 );
@@ -552,6 +575,14 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                             }
                         }
                         // 绝对禁止再次 throw e，吞掉异常让代码继续执行
+                    } catch (Exception e) {
+                        // 其他未预期的异常
+                        logger.error("会话 {} TTS处理时发生未预期异常", sessionId, e);
+                        ttsCircuitBreaker[0] = true;
+                        if (!errorSent[0]) {
+                            errorSent[0] = true;
+                            sendErrorMessage(session, "语音服务异常，已切换至文字模式");
+                        }
                     }
                 }
             }
