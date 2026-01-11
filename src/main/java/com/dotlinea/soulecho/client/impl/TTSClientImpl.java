@@ -1,6 +1,5 @@
 package com.dotlinea.soulecho.client.impl;
 
-import com.alibaba.nls.client.AccessToken;
 import com.alibaba.nls.client.protocol.NlsClient;
 import com.alibaba.nls.client.protocol.OutputFormatEnum;
 import com.alibaba.nls.client.protocol.SampleRateEnum;
@@ -8,12 +7,14 @@ import com.alibaba.nls.client.protocol.tts.SpeechSynthesizer;
 import com.alibaba.nls.client.protocol.tts.SpeechSynthesizerListener;
 import com.alibaba.nls.client.protocol.tts.SpeechSynthesizerResponse;
 import com.dotlinea.soulecho.client.TTSClient;
+import com.dotlinea.soulecho.client.TTSTokenManager;
+import com.dotlinea.soulecho.exception.TTSException;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,24 +25,29 @@ import java.util.function.Consumer;
  * <p>
  * 通过阿里云智能语音交互 (NLS) SDK 实现流式文本到语音转换功能
  * </p>
+ * <p>
+ * 错误处理策略：
+ * <ul>
+ * <li>Token失效（418, 41020001）：刷新Token并重试1次</li>
+ * <li>参数错误（如Voice ID为空）：直接熔断，不重试</li>
+ * <li>其他错误（认证失败、服务端错误等）：直接熔断，不重试</li>
+ * </ul>
+ * </p>
  *
  * @author fanfan187
  * @version v1.0.0
  * @since v1.0.0
  */
 @Component
+@RequiredArgsConstructor
 public class TTSClientImpl implements TTSClient {
 
     private static final Logger logger = LoggerFactory.getLogger(TTSClientImpl.class);
 
+    private final TTSTokenManager tokenManager;
+
     @Value("${tts.service.url}")
     private String ttsServiceUrl;
-
-    @Value("${tts.api.key}")
-    private String apiKey;
-
-    @Value("${tts.api.secret}")
-    private String apiSecret;
 
     @Value("${tts.app.key}")
     private String appKey;
@@ -55,34 +61,16 @@ public class TTSClientImpl implements TTSClient {
     @Value("${tts.sample.rate:16000}")
     private Integer sampleRate;
 
-    private NlsClient nlsClient;
+    /**
+     * Token失效错误码：需要刷新Token并重试
+     */
+    private static final int TOKEN_EXPIRED_CODE_1 = 418;
+    private static final int TOKEN_EXPIRED_CODE_2 = 41020001;
 
-    @PostConstruct
-    public void init() {
-        try {
-            // 使用 AccessKeyId 和 AccessKeySecret 获取 Token
-            AccessToken accessToken = new AccessToken(apiKey, apiSecret);
-            accessToken.apply();
-            String token = accessToken.getToken();
-
-            logger.info("TTS Token获取成功，过期时间: {}", accessToken.getExpireTime());
-
-            // 使用 Token 初始化 NLS 客户端
-            // 如果配置了服务URL，使用指定URL；否则使用默认URL
-            if (ttsServiceUrl != null && !ttsServiceUrl.trim().isEmpty()) {
-                nlsClient = new NlsClient(ttsServiceUrl, token);
-                logger.info("TTS 客户端初始化成功，ServiceURL: {}, AppKey: {}, Voice: {}, Format: {}, SampleRate: {}",
-                        ttsServiceUrl, appKey, voice, format, sampleRate);
-            } else {
-                nlsClient = new NlsClient(token);
-                logger.info("TTS 客户端初始化成功（使用默认URL），AppKey: {}, Voice: {}, Format: {}, SampleRate: {}",
-                        appKey, voice, format, sampleRate);
-            }
-        } catch (Exception e) {
-            logger.error("TTS 客户端初始化失败", e);
-            throw new RuntimeException("TTS 客户端初始化失败", e);
-        }
-    }
+    /**
+     * 最大重试次数：Token失效时最多重试1次
+     */
+    private static final int MAX_RETRY_COUNT = 1;
 
     @Override
     public void synthesize(String text, Consumer<ByteBuffer> audioChunkConsumer) {
@@ -96,14 +84,49 @@ public class TTSClientImpl implements TTSClient {
             return;
         }
 
+        // 执行TTS合成（支持Token失效重试）
+        synthesizeWithRetry(text, audioChunkConsumer, 0);
+    }
+
+    /**
+     * 带重试机制的TTS合成
+     * <p>
+     * 重试策略：
+     * <ul>
+     * <li>只有错误码为Token失效（418, 41020001）时才重试</li>
+     * <li>参数错误（如Voice ID为空）直接熔断，不重试</li>
+     * <li>其他错误（认证失败、服务端错误等）直接熔断，不重试</li>
+     * <li>最多重试1次，避免无限重试</li>
+     * </ul>
+     * </p>
+     *
+     * @param text 待合成文本
+     * @param audioChunkConsumer 音频数据消费者
+     * @param retryCount 当前重试次数
+     * @throws TTSException TTS合成失败（非Token失效错误或重试后仍失败）
+     */
+    private void synthesizeWithRetry(String text, Consumer<ByteBuffer> audioChunkConsumer, int retryCount) {
         // 用于记录TTS失败状态和错误信息
         AtomicBoolean ttsFailed = new AtomicBoolean(false);
-        AtomicReference<String> errorMessage = new AtomicReference<>(null);
+        AtomicReference<Integer> statusCode = new AtomicReference<>(null);
+        AtomicReference<String> statusText = new AtomicReference<>(null);
 
         SpeechSynthesizer synthesizer = null;
+
         try {
+            // 获取有效Token（如果即将过期会自动刷新）
+            String validToken = tokenManager.getValidToken();
+
+            // 创建NLS客户端（每次使用最新Token）
+            NlsClient nlsClient;
+            if (ttsServiceUrl != null && !ttsServiceUrl.trim().isEmpty()) {
+                nlsClient = new NlsClient(ttsServiceUrl, validToken);
+            } else {
+                nlsClient = new NlsClient(validToken);
+            }
+
             // 创建语音合成器
-            synthesizer = new SpeechSynthesizer(nlsClient, getSynthesizerListener(audioChunkConsumer, ttsFailed, errorMessage));
+            synthesizer = new SpeechSynthesizer(nlsClient, getSynthesizerListener(audioChunkConsumer, ttsFailed, statusCode, statusText));
 
             // 设置合成参数
             synthesizer.setAppKey(appKey);
@@ -127,13 +150,42 @@ public class TTSClientImpl implements TTSClient {
 
         } catch (Exception e) {
             logger.error("语音合成过程中发生异常", e);
-            throw new RuntimeException("TTS合成异常: " + e.getMessage(), e);
+
+            // 如果是TTSException，根据错误码判断是否需要重试
+            if (e instanceof TTSException ttsEx) {
+                handleTTSException(ttsEx, text, audioChunkConsumer, retryCount);
+                return;
+            }
+
+            // 根据listener记录的错误信息抛出TTSException
+            if (ttsFailed.get()) {
+                TTSException ttsEx = new TTSException(
+                    "语音合成失败: " + statusText.get(),
+                    statusCode.get() != null ? statusCode.get() : 500,
+                    statusText.get() != null ? statusText.get() : e.getClass().getSimpleName(),
+                    e
+                );
+                handleTTSException(ttsEx, text, audioChunkConsumer, retryCount);
+                return;
+            }
+
+            // 其他未预期的异常，直接抛出（不重试）
+            throw new TTSException(
+                "语音合成失败: " + e.getMessage(),
+                500,
+                e.getClass().getSimpleName(),
+                e
+            );
         } finally {
             // 检查TTS是否失败，如果失败则抛出异常让上层处理
             if (ttsFailed.get()) {
-                String error = errorMessage.get();
-                logger.error("TTS合成失败，向上层抛出异常: {}", error);
-                throw new RuntimeException(error);
+                TTSException ttsEx = new TTSException(
+                    "语音合成失败: " + statusText.get(),
+                    statusCode.get() != null ? statusCode.get() : 500,
+                    statusText.get() != null ? statusText.get() : "UNKNOWN_ERROR"
+                );
+                handleTTSException(ttsEx, text, audioChunkConsumer, retryCount);
+                return;
             }
 
             // 清理资源
@@ -148,16 +200,69 @@ public class TTSClientImpl implements TTSClient {
     }
 
     /**
+     * 处理TTS异常，根据错误码判断是否需要重试
+     * <p>
+     * 重试条件：
+     * <ul>
+     * <li>错误码为Token失效（418, 41020001）</li>
+     * <li>当前重试次数 < MAX_RETRY_COUNT</li>
+     * </ul>
+     * </p>
+     *
+     * @param ttsEx TTS异常
+     * @param text 待合成文本
+     * @param audioChunkConsumer 音频数据消费者
+     * @param retryCount 当前重试次数
+     * @throws TTSException 不需要重试或重试后仍失败
+     */
+    private void handleTTSException(TTSException ttsEx, String text,
+                                    Consumer<ByteBuffer> audioChunkConsumer, int retryCount) {
+        int statusCode = ttsEx.getStatusCode();
+
+        // 判断是否为Token失效错误
+        boolean isTokenExpired = (statusCode == TOKEN_EXPIRED_CODE_1 ||
+                                  statusCode == TOKEN_EXPIRED_CODE_2 ||
+                                  ttsEx.isTokenExpired());
+
+        if (isTokenExpired && retryCount < MAX_RETRY_COUNT) {
+            // Token失效，刷新Token并重试
+            logger.warn("检测到Token失效（错误码: {}），刷新Token并重试（第{}次）",
+                statusCode, retryCount + 1);
+
+            try {
+                // 强制刷新Token
+                tokenManager.forceRefresh();
+
+                // 重试
+                synthesizeWithRetry(text, audioChunkConsumer, retryCount + 1);
+            } catch (Exception retryEx) {
+                logger.error("Token刷新后重试失败", retryEx);
+                throw ttsEx;  // 重试失败，抛出原始异常
+            }
+        } else if (isTokenExpired) {
+            // Token失效但已达到最大重试次数
+            logger.error("Token失效且已达到最大重试次数（{}），停止重试", MAX_RETRY_COUNT);
+            throw ttsEx;
+        } else {
+            // 非Token失效错误，直接熔断
+            logger.error("非Token失效错误（错误码: {}），直接熔断", statusCode);
+            throw ttsEx;
+        }
+    }
+
+    /**
      * 创建语音合成监听器
      * @param audioChunkConsumer 音频数据消费者
      * @param ttsFailed 失败标志（AtomicBoolean）
-     * @param errorMessage 错误信息（AtomicReference）
+     * @param statusCode 错误码（AtomicReference）
+     * @param statusText 错误文本（AtomicReference）
      * @return 合成监听器
      */
     private SpeechSynthesizerListener getSynthesizerListener(
             Consumer<ByteBuffer> audioChunkConsumer,
             AtomicBoolean ttsFailed,
-            AtomicReference<String> errorMessage) {
+            AtomicReference<Integer> statusCode,
+            AtomicReference<String> statusText) {
         return new SpeechSynthesizerListener() {
             @Override
             public void onComplete(SpeechSynthesizerResponse response) {
@@ -176,13 +281,16 @@ public class TTSClientImpl implements TTSClient {
             @Override
             public void onFail(SpeechSynthesizerResponse response) {
                 // 合成失败，记录失败状态和错误信息
-                String errorMsg = String.format("语音合成失败: %s (状态码: %d)",
-                        response.getStatusText(), response.getStatus());
+                int code = response.getStatus();
+                String text = response.getStatusText();
+
+                String errorMsg = String.format("语音合成失败: %s (状态码: %d)", text, code);
                 logger.error(errorMsg);
 
                 // 设置失败标志，让上层 finally 块检测到
                 ttsFailed.set(true);
-                errorMessage.set(errorMsg);
+                statusCode.set(code);
+                statusText.set(text);
             }
         };
     }
