@@ -45,4 +45,9 @@ public final class MessageTypeConstants {
      * 音频信息消息
      */
     public static final String AUDIO_INFO = "audio-info";
+
+    /**
+     * 错误码 - TTS 服务已熔断
+     */
+    public static final String TTS_BROKEN = "TTS_BROKEN";
 }

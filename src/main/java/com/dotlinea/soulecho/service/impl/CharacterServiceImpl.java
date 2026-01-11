@@ -1,5 +1,8 @@
 package com.dotlinea.soulecho.service.impl;
 
+import com.aliyun.bailian20231229.Client;
+import com.aliyun.bailian20231229.models.*;
+import com.aliyun.teautil.models.RuntimeOptions;
 import com.dotlinea.soulecho.dto.CharacterRequestDTO;
 import com.dotlinea.soulecho.dto.CharacterResponseDTO;
 import com.dotlinea.soulecho.dto.ChatRequestDTO;
@@ -11,16 +14,14 @@ import com.dotlinea.soulecho.exception.ResourceNotFoundException;
 import com.dotlinea.soulecho.repository.CharacterRepository;
 import com.dotlinea.soulecho.service.CharacterService;
 import com.dotlinea.soulecho.service.RealtimeChatService;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -31,7 +32,7 @@ import java.util.stream.Collectors;
  * @since v1.0.0
  */
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 @Transactional
 public class CharacterServiceImpl implements CharacterService {
 
@@ -43,6 +44,10 @@ public class CharacterServiceImpl implements CharacterService {
 
     private final CharacterRepository characterRepository;
     private final RealtimeChatService chatService;
+    private final Client bailianClient;
+
+    @Value("${bailian.workspace.id}")
+    private String workspaceId;
 
     @Override
     @Transactional(readOnly = true)
@@ -73,11 +78,54 @@ public class CharacterServiceImpl implements CharacterService {
         logger.debug("创建角色: {}", requestDTO.name());
         try {
             Character character = convertToEntity(requestDTO);
+
+            // 创建专属知识库索引
+            String knowledgeIndexId = createKnowledgeIndex(character.getName());
+            character.setKnowledgeIndexId(knowledgeIndexId);
+
             Character savedCharacter = characterRepository.save(character);
+            logger.info("角色创建成功，ID: {}, 知识库索引ID: {}", savedCharacter.getId(), knowledgeIndexId);
+
             return convertToResponseDTO(savedCharacter);
         } catch (Exception e) {
             logger.error("创建角色失败: {}", requestDTO.name(), e);
             throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED, "创建角色失败: " + requestDTO.name(), e);
+        }
+    }
+
+    /**
+     * 创建角色的专属知识库索引
+     *
+     * @param characterName 角色名称
+     * @return 知识库索引ID
+     */
+    private String createKnowledgeIndex(String characterName) {
+        try {
+            CreateIndexRequest request = new CreateIndexRequest()
+                    .setName(characterName + "-知识库")
+                    .setStructureType("unstructured")
+                    .setDescription("角色 " + characterName + " 的专属知识库")
+                    .setSinkType("BUILT_IN");
+
+            CreateIndexResponse response = bailianClient.createIndexWithOptions(
+                    workspaceId,
+                    request,
+                    new HashMap<>(),
+                    new RuntimeOptions()
+            );
+
+            if (response != null && response.getBody() != null && response.getBody().getData() != null) {
+                String indexId = response.getBody().getData().getId();
+                logger.info("知识库索引创建成功: {}", indexId);
+                return indexId;
+            } else {
+                throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED, "创建知识库索引失败：未返回索引ID");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            logger.error("调用阿里云百炼 API 创建知识库索引失败", e);
+            throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED, "创建知识库索引失败: " + e.getMessage(), e);
         }
     }
 
@@ -252,9 +300,7 @@ public class CharacterServiceImpl implements CharacterService {
             StringBuilder responseBuilder = new StringBuilder();
 
             // 调用流式方法，累积完整响应
-            chatService.processTextChatStream(personaPrompt, message, sessionId, chunk -> {
-                responseBuilder.append(chunk);
-            });
+            chatService.processTextChatStream(personaPrompt, message, sessionId, responseBuilder::append);
 
             return responseBuilder.toString();
         } catch (Exception llmEx) {
@@ -303,8 +349,9 @@ public class CharacterServiceImpl implements CharacterService {
                 character.getAvatarUrl(),
                 character.getVoiceId(),
                 character.isPublic(),
-                character.getCreatedAt(),
-                character.getUpdatedAt()
+                character.getKnowledgeIndexId(),
+                character.getGmtCreate(),
+                character.getGmtModified()
         );
     }
 }

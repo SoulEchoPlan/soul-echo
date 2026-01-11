@@ -41,13 +41,14 @@ public class Character {
      * 角色描述信息
      */
     @Lob
+    @Column(columnDefinition = "TEXT")
     private String description;
 
     /**
      * 角色人设提示词，用于AI对话生成
      */
     @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String personaPrompt;
 
     /**
@@ -68,17 +69,24 @@ public class Character {
     private boolean isPublic = true;
 
     /**
+     * 角色专属知识库索引ID（阿里云百炼）
+     */
+    @Column(name = "knowledge_index_id", unique = true, length = 255)
+    private String knowledgeIndexId;
+
+    /**
      * 创建时间，自动生成
      */
     @CreationTimestamp
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
+    @Column(name = "gmt_create", updatable = false)
+    private LocalDateTime gmtCreate;
 
     /**
      * 更新时间，自动维护
      */
     @UpdateTimestamp
-    private LocalDateTime updatedAt;
+    @Column(name = "gmt_modified")
+    private LocalDateTime gmtModified;
 
     /**
      * 重写 equals 方法，仅比较 id

@@ -26,39 +26,30 @@ public class BailianConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(BailianConfig.class);
 
-    @Value("${aliyun.accessKeyId}")
+    @Value("${bailian.accessKeyId}")
     private String accessKeyId;
 
-    @Value("${aliyun.accessKeySecret}")
+    @Value("${bailian.accessKeySecret}")
     private String accessKeySecret;
+
+    @Value("${bailian.endpoint:bailian.cn-beijing.aliyuncs.com}")
+    private String endpoint;
 
     @Value("${bailian.workspace.id}")
     private String workspaceId;
 
-    @Value("${bailian.knowledge.index.id}")
-    private String indexId;
-
-    /**
-     * 创建阿里云百炼 Client Bean
-     *
-     * @return 百炼 Client 实例
-     * @throws Exception 初始化失败时抛出异常
-     */
     @Bean
-    public Client bailianClient() throws Exception {
+    public Client bailianClient() {
         try {
             logger.info("初始化阿里云百炼 Client...");
 
-            // 配置阿里云认证
             Config config = new Config()
                     .setAccessKeyId(accessKeyId)
                     .setAccessKeySecret(accessKeySecret)
-                    .setEndpoint("bailian.cn-beijing.aliyuncs.com");
+                    .setEndpoint(endpoint);
 
-            // 创建百炼客户端
             Client client = new Client(config);
-
-            logger.info("阿里云百炼 Client 初始化成功，Workspace: {}, Index: {}", workspaceId, indexId);
+            logger.info("阿里云百炼 Client 初始化成功，Workspace: {}", workspaceId);
             return client;
         } catch (Exception e) {
             logger.error("阿里云百炼 Client 初始化失败", e);
