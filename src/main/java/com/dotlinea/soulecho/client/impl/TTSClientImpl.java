@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,6 +61,12 @@ public class TTSClientImpl implements TTSClient {
 
     @Value("${tts.sample.rate:16000}")
     private Integer sampleRate;
+
+    @Value("${tts.speech.rate:100}")
+    private Integer speechRate;
+
+    @Value("${tts.pitch.rate:0}")
+    private Integer pitchRate;
 
     /**
      * Token失效错误码：需要刷新Token并重试
@@ -135,8 +142,8 @@ public class TTSClientImpl implements TTSClient {
             synthesizer.setFormat(parseOutputFormat(format));
             synthesizer.setSampleRate(parseSampleRate(sampleRate));
             synthesizer.setVolume(50);  // 音量 0-100
-            synthesizer.setSpeechRate(0);  // 语速 -500 到 500
-            synthesizer.setPitchRate(0);  // 语调 -500 到 500
+            synthesizer.setSpeechRate(speechRate);  // 语速 -500 到 500
+            synthesizer.setPitchRate(pitchRate);  // 语调 -500 到 500
 
             logger.debug("开始语音合成任务，文本长度: {} 字符", text.length());
 
@@ -263,18 +270,42 @@ public class TTSClientImpl implements TTSClient {
             AtomicBoolean ttsFailed,
             AtomicReference<Integer> statusCode,
             AtomicReference<String> statusText) {
+
+        // 创建音频缓冲区，用于缓存完整的音频数据
+        ByteArrayOutputStream audioBuffer = new ByteArrayOutputStream();
+
         return new SpeechSynthesizerListener() {
             @Override
             public void onComplete(SpeechSynthesizerResponse response) {
                 logger.debug("语音合成完成，TaskId: {}", response.getTaskId());
+
+                // 将缓存的完整音频数据一次性发送给前端
+                byte[] completeAudio = audioBuffer.toByteArray();
+                if (completeAudio.length > 0) {
+                    logger.info("发送完整音频数据，大小: {} bytes", completeAudio.length);
+                    audioChunkConsumer.accept(ByteBuffer.wrap(completeAudio));
+                } else {
+                    logger.warn("音频数据为空，未发送");
+                }
             }
 
             @Override
             public void onMessage(ByteBuffer message) {
-                // 收到音频数据块，立即通过回调传递出去
+                // 收到音频数据块，写入缓冲区（不立即发送）
                 if (message != null && message.hasRemaining()) {
                     logger.trace("收到音频数据块，大小: {} bytes", message.remaining());
-                    audioChunkConsumer.accept(message);
+
+                    try {
+                        // 将ByteBuffer中的数据写入缓冲区
+                        byte[] chunk = new byte[message.remaining()];
+                        message.get(chunk);
+                        audioBuffer.write(chunk);
+                    } catch (Exception e) {
+                        logger.error("写入音频缓冲区时发生异常", e);
+                        ttsFailed.set(true);
+                        statusCode.set(500);
+                        statusText.set("音频缓冲区写入失败: " + e.getMessage());
+                    }
                 }
             }
 
