@@ -44,6 +44,25 @@ public interface RealtimeChatService {
     void processTextChatStream(String personaPrompt, String userInput, String sessionId, String characterName, Consumer<String> chunkConsumer);
 
     /**
+     * 处理流式文本聊天（支持知识库增强 + TTS 控制）
+     * @param personaPrompt 角色设定
+     * @param userInput 用户输入
+     * @param sessionId 会话ID
+     * @param characterName 角色名称（用于知识库检索）
+     * @param enableTts 是否启用 TTS 语音合成
+     * @param chunkConsumer 文本块消费者，每收到一块文本就会被调用
+     */
+    void processTextChatStream(String personaPrompt, String userInput, String sessionId, String characterName, boolean enableTts, Consumer<String> chunkConsumer);
+
+    /**
+     * 处理 WebSocket 文本请求（支持 TTS 音频推流）
+     * @param session WebSocket 会话
+     * @param userInput 用户输入文本
+     * @param enableTts 是否启用 TTS
+     */
+    void handleTextRequest(WebSocketSession session, String userInput, boolean enableTts);
+
+    /**
      * 清理会话
      * @param sessionId 会话 ID
      */

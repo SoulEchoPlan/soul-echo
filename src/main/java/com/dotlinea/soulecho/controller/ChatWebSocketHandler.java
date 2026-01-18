@@ -125,7 +125,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         logger.debug("接收到会话 {} 的文本消息: {}", sessionId, textPayload);
 
         try {
-            // === 应用层心跳检测 ===
+            // === 步骤1: 应用层心跳检测 ===
             // 尝试解析为 JSON，判断是否为 ping 消息
             try {
                 com.fasterxml.jackson.databind.JsonNode jsonNode = objectMapper.readTree(textPayload);
@@ -140,23 +140,51 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
                 // 如果不是 JSON 或无法解析，视为普通用户文本消息，继续正常处理
             }
 
-            // 流式处理文本消息
+            // === 步骤2: 解析用户消息内容（支持 JSON 和纯文本） ===
+            String userInput = null;
+            boolean ttsEnabled = false; // 默认不启用 TTS
+
+            try {
+                // 尝试解析为 JSON：{"message": "用户消息", "ttsEnabled": true}
+                com.fasterxml.jackson.databind.JsonNode jsonNode = objectMapper.readTree(textPayload);
+
+                // 优先读取 message 字段，如果不是文本（防止空对象{}）则读取 content
+                if (jsonNode.has("message") && jsonNode.get("message").isTextual()) {
+                    userInput = jsonNode.get("message").asText();
+                } else if (jsonNode.has("content")) {
+                    userInput = jsonNode.get("content").asText();
+                }
+
+                // 提取 ttsEnabled 字段（可选）
+                if (jsonNode.has("ttsEnabled")) {
+                    ttsEnabled = jsonNode.get("ttsEnabled").asBoolean();
+                    // 新增：保存 TTS 状态到 Session，供语音输入流程使用
+                    session.getAttributes().put(SessionAttributeKeys.TTS_ENABLED, ttsEnabled);
+                    logger.debug("会话 {} 保存 TTS 状态到 Session: {}", sessionId, ttsEnabled);
+                }
+
+                logger.debug("会话 {} 解析 JSON 消息成功，content: {}, ttsEnabled: {}", sessionId, userInput, ttsEnabled);
+            } catch (Exception e) {
+                // JSON 解析失败，回退到纯文本模式
+                userInput = textPayload;
+                ttsEnabled = false; // 纯文本模式默认不启用 TTS
+                logger.debug("会话 {} JSON 解析失败，回退到纯文本模式", sessionId);
+            }
+
+            // === 步骤3: 参数校验 ===
+            if (userInput == null || userInput.trim().isEmpty()) {
+                logger.warn("会话 {} 用户消息为空，忽略处理", sessionId);
+                return;
+            }
+
+            // === 步骤4: 流式处理文本消息（支持可选 TTS） ===
             String personaPrompt = (String) session.getAttributes().get(SessionAttributeKeys.PERSONA_PROMPT);
             String characterName = (String) session.getAttributes().get(SessionAttributeKeys.CHARACTER_NAME);
 
-            // 调用流式方法（使用带 characterName 参数的重载方法，支持知识库检索）
-            chatService.processTextChatStream(personaPrompt, textPayload, sessionId, characterName, chunk -> {
-                try {
-                    if (session.isOpen()) {
-                        session.sendMessage(new TextMessage(chunk));
-                        logger.trace("向会话 {} 发送文本块，长度: {}", sessionId, chunk.length());
-                    }
-                } catch (Exception e) {
-                    logger.error("向会话 {} 发送文本块失败", sessionId, e);
-                }
-            });
+            // 统一调用 handleTextRequest，让 Service 层处理 TTS 逻辑
+            chatService.handleTextRequest(session, userInput, ttsEnabled);
 
-            logger.debug("会话 {} 文本流式处理完成", sessionId);
+            logger.debug("会话 {} 文本流式处理完成（TTS: {}）", sessionId, ttsEnabled);
 
         } catch (Exception e) {
             logger.error("处理会话 {} 的文本消息时发生异常", sessionId, e);

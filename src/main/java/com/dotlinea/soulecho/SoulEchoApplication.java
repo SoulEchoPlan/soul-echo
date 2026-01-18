@@ -2,6 +2,7 @@ package com.dotlinea.soulecho;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Soul Echo 应用程序主启动类
@@ -21,6 +22,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @since v1.0.0
  */
 @SpringBootApplication
+@EnableScheduling
 public class SoulEchoApplication {
 
     /**

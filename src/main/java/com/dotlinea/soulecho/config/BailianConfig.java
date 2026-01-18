@@ -32,6 +32,9 @@ public class BailianConfig {
     @Value("${bailian.accessKeySecret}")
     private String accessKeySecret;
 
+    @Value("${bailian.endpoint:bailian.cn-beijing.aliyuncs.com}")
+    private String endpoint;
+
     @Value("${bailian.workspace.id}")
     private String workspaceId;
 
@@ -48,16 +51,13 @@ public class BailianConfig {
         try {
             logger.info("初始化阿里云百炼 Client...");
 
-            // 配置阿里云认证
             Config config = new Config()
                     .setAccessKeyId(accessKeyId)
                     .setAccessKeySecret(accessKeySecret)
-                    .setEndpoint("bailian.cn-beijing.aliyuncs.com");
+                    .setEndpoint(endpoint);
 
-            // 创建百炼客户端
             Client client = new Client(config);
-
-            logger.info("阿里云百炼 Client 初始化成功，Workspace: {}, Index: {}", workspaceId, indexId);
+            logger.info("阿里云百炼 Client 初始化成功，Workspace: {}", workspaceId);
             return client;
         } catch (Exception e) {
             logger.error("阿里云百炼 Client 初始化失败", e);

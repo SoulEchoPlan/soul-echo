@@ -28,7 +28,7 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Lo
      * @param characterId 角色 ID
      * @return 文件列表
      */
-    List<KnowledgeBase> findByCharacterIdOrderByCreatedAtDesc(Long characterId);
+    List<KnowledgeBase> findByCharacterIdOrderByGmtCreateDesc(Long characterId);
 
     /**
      * 根据阿里云文件 ID 查找文件
@@ -45,7 +45,7 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Lo
      * @param status 文件状态
      * @return 文件列表
      */
-    List<KnowledgeBase> findByCharacterIdAndStatusOrderByCreatedAtDesc(Long characterId, String status);
+    List<KnowledgeBase> findByCharacterIdAndStatusOrderByGmtCreateDesc(Long characterId, String status);
 
     /**
      * 统计某个角色的文件数量
@@ -81,6 +81,6 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Lo
      * @param limit 限制数量
      * @return 文件列表
      */
-    @Query(value = "SELECT * FROM knowledge_base WHERE character_id = :characterId ORDER BY created_at DESC LIMIT :limit", nativeQuery = true)
-    List<KnowledgeBase> findTopNByCharacterIdOrderByCreatedAtDesc(@Param("characterId") Long characterId, @Param("limit") int limit);
+    @Query(value = "SELECT * FROM knowledge_base WHERE character_id = :characterId ORDER BY gmt_create DESC LIMIT :limit", nativeQuery = true)
+    List<KnowledgeBase> findTopNByCharacterIdOrderByGmtCreateDesc(@Param("characterId") Long characterId, @Param("limit") int limit);
 }

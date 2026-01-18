@@ -356,8 +356,8 @@ public class CharacterServiceImpl implements CharacterService {
                 character.getVoiceId(),
                 character.isPublic(),
                 character.getKnowledgeIndexId(),
-                character.getCreatedAt(),
-                character.getUpdatedAt()
+                character.getGmtCreate(),
+                character.getGmtModified()
         );
     }
 }
