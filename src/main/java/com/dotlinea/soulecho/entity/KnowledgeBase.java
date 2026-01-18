@@ -90,23 +90,23 @@ public class KnowledgeBase {
     /**
      * 创建时间
      */
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "gmt_create", nullable = false)
     @Builder.Default
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime gmtCreate = LocalDateTime.now();
 
     /**
      * 更新时间
      */
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "gmt_modified", nullable = false)
     @Builder.Default
-    private LocalDateTime updatedAt = LocalDateTime.now();
+    private LocalDateTime gmtModified = LocalDateTime.now();
 
     /**
      * JPA生命周期回调，自动更新时间
      */
     @PreUpdate
     public void preUpdate() {
-        updatedAt = LocalDateTime.now();
+        gmtModified = LocalDateTime.now();
     }
 
     /**

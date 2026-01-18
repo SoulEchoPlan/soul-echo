@@ -39,4 +39,12 @@ public final class SessionAttributeKeys {
      * </p>
      */
     public static final String CHARACTER_NAME = "characterName";
+
+    /**
+     * TTS 启用状态属性键
+     * <p>
+     * 存储在 WebSocket Session 中的 TTS（文本转语音）开关状态
+     * </p>
+     */
+    public static final String TTS_ENABLED = "tts_enabled";
 }
