@@ -28,20 +28,20 @@ import java.util.Objects;
 public class KnowledgeBase {
 
     /**
-     * 主键ID
+     * 主键 ID
      */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     /**
-     * 关联的角色ID
+     * 关联的角色 ID
      */
     @Column(name = "character_id", nullable = false)
     private Long characterId;
 
     /**
-     * 阿里云百炼返回的文件ID
+     * 阿里云百炼返回的文件 ID
      * <p>
      * 允许为 null，因为业务流程是"先入库占位(UPLOADING)" -> "异步上传获取ID"
      * 在入库时还没有阿里云文件ID，等待异步上传完成后更新

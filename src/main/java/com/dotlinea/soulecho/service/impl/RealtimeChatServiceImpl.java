@@ -115,7 +115,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 处理用户说话结束事件
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      */
     private void handleSpeechEnd(WebSocketSession session) {
         String sessionId = session.getId();
@@ -151,7 +151,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      * 如果无法立即获取锁，则拒绝本次请求，避免阻塞线程池。
      * </p>
      *
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @param audioData 完整的音频数据
      */
     private void processAudioMessage(WebSocketSession session, byte[] audioData) {
@@ -183,7 +183,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             // 调用异步ASR，返回CompletableFuture
             asrClient.recognizeAsync(audioInputStream)
                     .thenAccept(recognizedText -> {
-                        // ASR成功回调
+                        // ASR 成功回调
                         if (recognizedText == null || recognizedText.trim().isEmpty()) {
                             logger.debug("会话 {} 语音识别无结果", sessionId);
                             return;
@@ -228,7 +228,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                                         logger.error("向会话 {} 发送句子文本失败", sessionId, e);
                                     }
 
-                                    // 立即将完整句子送去TTS合成
+                                    // 立即将完整句子送去 TTS 合成
                                     try {
                                         ttsClient.synthesize(completeSentence, audioChunk -> sendAudioResponse(session, audioChunk));
                                     } catch (Exception e) {
@@ -256,7 +256,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                                     logger.error("向会话 {} 发送剩余文本失败", sessionId, e);
                                 }
 
-                                // TTS合成剩余文本
+                                // TTS 合成剩余文本
                                 try {
                                     ttsClient.synthesize(remainingText, audioChunk -> sendAudioResponse(session, audioChunk));
                                 } catch (Exception e) {
@@ -403,7 +403,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 获取会话的角色设定
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @return 角色设定提示词
      */
     private String getPersonaPrompt(WebSocketSession session) {
@@ -419,7 +419,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 获取会话的角色名称
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @return 角色名称
      */
     private String getCharacterName(WebSocketSession session) {
@@ -435,7 +435,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 获取或创建会话历史（从 Redis）
-     * @param sessionId 会话ID
+     * @param sessionId 会话 ID
      * @return 会话历史列表（RList，支持分布式存储）
      */
     private RList<String> getSessionHistory(String sessionId) {
@@ -445,7 +445,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 获取会话锁（从 Redis）
-     * @param sessionId 会话ID
+     * @param sessionId 会话 ID
      * @return 分布式锁（RLock）
      */
     private RLock getSessionLock(String sessionId) {
@@ -455,7 +455,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 发送音频响应
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @param audioData 音频数据
      */
     private void sendAudioResponse(WebSocketSession session, ByteBuffer audioData) {
@@ -475,7 +475,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 发送错误消息
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @param errorMessage 错误消息
      */
     private void sendErrorMessage(WebSocketSession session, String errorMessage) {
@@ -498,7 +498,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
     /**
      * 发送用户转写文本回显
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @param transcribedText 转写文本
      */
     private void sendUserTranscriptionEcho(WebSocketSession session, String transcribedText) {

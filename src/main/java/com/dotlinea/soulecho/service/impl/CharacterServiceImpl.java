@@ -97,7 +97,7 @@ public class CharacterServiceImpl implements CharacterService {
      * 创建角色的专属知识库索引
      *
      * @param characterName 角色名称
-     * @return 知识库索引ID
+     * @return 知识库索引 ID
      */
     private String createKnowledgeIndex(String characterName) {
         try {
@@ -248,7 +248,7 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 生成或获取会话ID
+     * 生成或获取会话 ID
      */
     private String generateOrGetSessionId(String sessionId) {
         if (sessionId == null || sessionId.trim().isEmpty()) {
@@ -298,11 +298,11 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 调用LLM服务处理聊天
+     * 调用 LLM 服务处理聊天
      */
     private String processLlmChat(String personaPrompt, String message, String sessionId, String characterName) {
         try {
-            // 使用StringBuilder累积流式响应
+            // 使用 StringBuilder 累积流式响应
             StringBuilder responseBuilder = new StringBuilder();
 
             // 调用流式方法，累积完整响应
@@ -332,7 +332,7 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 将请求DTO转换为实体
+     * 将请求 DTO 转换为实体
      */
     private Character convertToEntity(CharacterRequestDTO requestDTO) {
         Character character = new Character();
@@ -345,7 +345,7 @@ public class CharacterServiceImpl implements CharacterService {
     }
 
     /**
-     * 将实体转换为响应DTO
+     * 将实体转换为响应 DTO
      */
     private CharacterResponseDTO convertToResponseDTO(Character character) {
         return new CharacterResponseDTO(

@@ -39,7 +39,7 @@ public class KnowledgeController {
      * 支持多种文件格式上传到百炼知识库
      * </p>
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param file        上传的文件
      * @return 上传结果
      */
@@ -57,10 +57,10 @@ public class KnowledgeController {
     /**
      * 搜索知识库内容
      * <p>
-     * 基于角色ID在知识库中进行智能检索
+     * 基于角色 ID 在知识库中进行智能检索
      * </p>
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param query       查询文本
      * @return 检索结果
      */
@@ -88,7 +88,7 @@ public class KnowledgeController {
      * 查询指定角色上传了哪些文件
      * </p>
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @return 文档列表
      */
     @GetMapping
@@ -102,10 +102,10 @@ public class KnowledgeController {
     /**
      * 删除知识库文档
      * <p>
-     * 根据文档ID删除知识库中的文件
+     * 根据文档 ID 删除知识库中的文件
      * </p>
      *
-     * @param id 文档ID
+     * @param id 文档 ID
      * @return 删除结果
      */
     @DeleteMapping("/{id}")

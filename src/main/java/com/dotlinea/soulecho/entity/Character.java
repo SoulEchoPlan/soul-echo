@@ -51,13 +51,13 @@ public class Character {
     private String personaPrompt;
 
     /**
-     * 角色头像URL
+     * 角色头像 URL
      */
     @Column(length = 1024)
     private String avatarUrl;
 
     /**
-     * 语音合成使用的声音ID
+     * 语音合成使用的声音 ID
      */
     private String voiceId;
 

@@ -1,6 +1,7 @@
 package com.dotlinea.soulecho.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,10 +33,12 @@ public class AsyncConfig implements AsyncConfigurer {
      * 配置默认的异步任务执行器
      * <p>
      * 线程池参数说明：
-     * - 核心线程数：10（足够处理日常并发）
-     * - 最大线程数：50（高峰期可扩展）
-     * - 队列容量：200（缓冲突发请求）
-     * - 拒绝策略：CallerRunsPolicy（降级到调用线程执行，避免任务丢失）
+     * <ul>
+     * <li>核心线程数：10（足够处理日常并发）</li>
+     * <li>最大线程数：50（高峰期可扩展）</li>
+     * <li>队列容量：200（缓冲突发请求）</li>
+     * <li>拒绝策略：CallerRunsPolicy（降级到调用线程执行，避免任务丢失）</li>
+     * </ul>
      * </p>
      *
      * @return 异步任务执行器
@@ -174,7 +177,7 @@ public class AsyncConfig implements AsyncConfigurer {
     @Slf4j
     private static class CustomAsyncExceptionHandler implements AsyncUncaughtExceptionHandler {
         @Override
-        public void handleUncaughtException(Throwable throwable, Method method, Object... params) {
+        public void handleUncaughtException(@NotNull Throwable throwable, Method method, Object... params) {
             log.error("异步任务执行失败 - 方法: {}.{}, 参数: {}, 异常: {}",
                     method.getDeclaringClass().getSimpleName(),
                     method.getName(),

@@ -45,7 +45,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
     private final WebSocketMessageFactory messageFactory;
 
     /**
-     * 当WebSocket连接建立时调用
+     * 当 WebSocket 连接建立时调用
      *
      * @param session WebSocket会话
      */
@@ -165,7 +165,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
     }
 
     /**
-     * 当WebSocket传输错误时调用
+     * 当 WebSocket 传输错误时调用
      *
      * @param session WebSocket会话
      * @param exception 错误信息
@@ -180,9 +180,9 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
     }
 
     /**
-     * 当WebSocket连接关闭时调用
+     * 当 WebSocket 连接关闭时调用
      *
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @param status 关闭状态
      */
     @Override
@@ -222,7 +222,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
     /**
      * 发送错误响应
-     * @param session WebSocket会话
+     * @param session WebSocket 会话
      * @param errorMessage 错误消息
      */
     private void sendErrorResponse(WebSocketSession session, String errorMessage) {

@@ -21,8 +21,8 @@ public class WebSocketMessageFactory {
      * 创建用户转写消息
      *
      * @param transcribedText 转写文本
-     * @param sessionId       会话ID
-     * @return WebSocket消息DTO
+     * @param sessionId       会话 ID
+     * @return WebSocket消息 DTO
      */
     public WebSocketMessageDTO createUserTranscription(String transcribedText, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();
@@ -37,8 +37,8 @@ public class WebSocketMessageFactory {
      * 创建错误消息
      *
      * @param errorMessage 错误消息
-     * @param sessionId    会话ID
-     * @return WebSocket消息DTO
+     * @param sessionId    会话 ID
+     * @return WebSocket消息 DTO
      */
     public WebSocketMessageDTO createError(String errorMessage, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();
@@ -50,11 +50,11 @@ public class WebSocketMessageFactory {
     }
 
     /**
-     * 创建AI回复消息
+     * 创建 AI 回复消息
      *
      * @param replyText 回复文本
-     * @param sessionId 会话ID
-     * @return WebSocket消息DTO
+     * @param sessionId 会话 ID
+     * @return WebSocket消息 DTO
      */
     public WebSocketMessageDTO createAIReply(String replyText, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();
@@ -69,8 +69,8 @@ public class WebSocketMessageFactory {
      * 创建音频数据消息
      *
      * @param audioInfo 音频信息（如：格式、大小等）
-     * @param sessionId 会话ID
-     * @return WebSocket消息DTO
+     * @param sessionId 会话 ID
+     * @return WebSocket消息 DTO
      */
     public WebSocketMessageDTO createAudioInfo(String audioInfo, String sessionId) {
         WebSocketMessageDTO dto = new WebSocketMessageDTO();

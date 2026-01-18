@@ -24,7 +24,7 @@ public class KnowledgeUploadEvent extends ApplicationEvent {
     private final Long knowledgeBaseId;
 
     /**
-     * 关联的角色ID
+     * 关联的角色 ID
      */
     private final Long characterId;
 
@@ -52,8 +52,8 @@ public class KnowledgeUploadEvent extends ApplicationEvent {
      * 构造函数
      *
      * @param source            事件源（通常是发布事件的Service）
-     * @param knowledgeBaseId   知识库记录ID
-     * @param characterId       角色ID
+     * @param knowledgeBaseId   知识库记录 ID
+     * @param characterId       角色 ID
      * @param localFilePath     本地临时文件路径
      * @param originalFileName  原始文件名
      * @param fileMd5           文件MD5

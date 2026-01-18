@@ -23,25 +23,25 @@ import java.util.Optional;
 public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Long> {
 
     /**
-     * 根据角色ID查找所有文件
+     * 根据角色 ID 查找所有文件
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @return 文件列表
      */
     List<KnowledgeBase> findByCharacterIdOrderByCreatedAtDesc(Long characterId);
 
     /**
-     * 根据阿里云文件ID查找文件
+     * 根据阿里云文件 ID 查找文件
      *
-     * @param aliyunFileId 阿里云文件ID
+     * @param aliyunFileId 阿里云文件 ID
      * @return 文件信息
      */
     Optional<KnowledgeBase> findByAliyunFileId(String aliyunFileId);
 
     /**
-     * 根据角色ID和状态查找文件
+     * 根据角色 ID 和状态查找文件
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param status 文件状态
      * @return 文件列表
      */
@@ -50,16 +50,16 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Lo
     /**
      * 统计某个角色的文件数量
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @return 文件数量
      */
     @Query("SELECT COUNT(kb) FROM KnowledgeBase kb WHERE kb.characterId = :characterId")
     long countByCharacterId(@Param("characterId") Long characterId);
 
     /**
-     * 根据角色ID和状态统计文件数量
+     * 根据角色 ID 和状态统计文件数量
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param status 文件状态
      * @return 文件数量
      */
@@ -67,17 +67,17 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Lo
     long countByCharacterIdAndStatus(@Param("characterId") Long characterId, @Param("status") String status);
 
     /**
-     * 检查阿里云文件ID是否存在
+     * 检查阿里云文件 ID 是否存在
      *
-     * @param aliyunFileId 阿里云文件ID
+     * @param aliyunFileId 阿里云文件 ID
      * @return 是否存在
      */
     boolean existsByAliyunFileId(String aliyunFileId);
 
     /**
-     * 根据角色ID查找最新的N个文件
+     * 根据角色 ID 查找最新的N个文件
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param limit 限制数量
      * @return 文件列表
      */

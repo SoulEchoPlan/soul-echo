@@ -147,7 +147,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
      * 5. 立即返回结果，不等待上传完成
      * </p>
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param file        上传的文件
      * @return 上传结果信息，包含文件ID和状态
      */
@@ -258,7 +258,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             logger.debug("检索知识库，角色ID: {}, 查询: {}", characterId, query);
 
-            // 获取角色的专属知识库索引ID
+            // 获取角色的专属知识库索引 ID
             com.dotlinea.soulecho.entity.Character character = characterRepository.findById(characterId).orElse(null);
             if (character == null) {
                 logger.warn("角色不存在，ID: {}", characterId);
@@ -321,7 +321,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         KnowledgeBase knowledgeBase = knowledgeBaseOpt.get();
 
         try {
-            // 获取角色的专属知识库索引ID
+            // 获取角色的专属知识库索引 ID
             com.dotlinea.soulecho.entity.Character character = characterRepository.findById(knowledgeBase.getCharacterId()).orElse(null);
             if (character == null) {
                 logger.warn("关联角色不存在，角色ID: {}", knowledgeBase.getCharacterId());
@@ -334,7 +334,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 throw new BusinessException(ErrorCode.CHARACTER_NOT_FOUND, "角色知识库索引ID为空");
             }
 
-            // 使用SDK删除文档
+            // 使用 SDK 删除文档
             DeleteIndexDocumentRequest deleteRequest = new DeleteIndexDocumentRequest()
                     .setIndexId(knowledgeIndexId)
                     .setDocumentIds(Collections.singletonList(knowledgeBase.getAliyunFileId()));
@@ -434,12 +434,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     /**
-     * 上传文件到指定URL
+     * 上传文件到指定 URL
      *
-     * @param uploadUrl   上传URL
+     * @param uploadUrl   上传 URL
      * @param inputStream 文件输入流
      * @param fileName    文件名
-     * @param headers     SDK返回的请求头
+     * @param headers     SDK 返回的请求头
      */
     private void uploadFileToUrl(String uploadUrl, InputStream inputStream, String fileName, Map<String, String> headers) throws IOException {
         // 1. 动态确定 Content-Type

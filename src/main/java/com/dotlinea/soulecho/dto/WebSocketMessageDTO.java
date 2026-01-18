@@ -37,7 +37,7 @@ public class WebSocketMessageDTO {
     private Long timestamp;
 
     /**
-     * 会话ID
+     * 会话 ID
      */
     private String sessionId;
 }

@@ -35,7 +35,7 @@ public interface KnowledgeService {
      * 支持多种文件格式，将文件内容与角色关联并存入知识库
      * </p>
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param file        上传的文件
      * @return 上传结果信息，包含文件ID和状态
      */
@@ -47,7 +47,7 @@ public interface KnowledgeService {
      * 基于向量相似度进行智能检索
      * </p>
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @param query       查询文本
      * @return 相关知识片段列表
      */
@@ -56,10 +56,10 @@ public interface KnowledgeService {
     /**
      * 删除知识库文档
      * <p>
-     * 根据文档ID删除知识库中的文件
+     * 根据文档 ID 删除知识库中的文件
      * </p>
      *
-     * @param documentId 文档ID
+     * @param documentId 文档 ID
      * @throws BusinessException 如果文档不存在或删除失败
      */
     void deleteDocument(Long documentId);
@@ -70,7 +70,7 @@ public interface KnowledgeService {
      * 查询指定角色上传了哪些文件
      * </p>
      *
-     * @param characterId 角色ID
+     * @param characterId 角色 ID
      * @return 文档信息列表
      */
     List<Map<String, Object>> listDocuments(Long characterId);

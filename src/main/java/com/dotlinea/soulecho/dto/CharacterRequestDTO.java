@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import org.hibernate.validator.constraints.URL;
 
 /**
- * AI角色请求DTO
+ * AI角色请求 DTO
  *
  * @author fanfan187
  * @version v1.0.0

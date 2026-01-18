@@ -83,7 +83,7 @@ public class KnowledgeUploadListener {
         var fileSize = event.getFileSize();
 
         try {
-            // 获取角色的专属知识库索引ID
+            // 获取角色的专属知识库索引 ID
             var character = characterRepository.findById(characterId).orElse(null);
             if (character == null) {
                 throw new RuntimeException("角色不存在，ID: " + characterId);
@@ -195,10 +195,10 @@ public class KnowledgeUploadListener {
     }
 
     /**
-     * 从SDK返回的Headers对象中提取上传头信息
+     * 从 SDK 返回的 Headers 对象中提取上传头信息
      *
-     * @param headersObj SDK返回的Headers对象
-     * @return 上传头信息Map
+     * @param headersObj SDK 返回的 Headers 对象
+     * @return 上传头信息 Map
      */
     private Map<String, String> extractUploadHeaders(Object headersObj) {
         var uploadHeaders = new HashMap<String, String>();
@@ -213,9 +213,9 @@ public class KnowledgeUploadListener {
     }
 
     /**
-     * 上传文件到百炼提供的URL
+     * 上传文件到百炼提供的 URL
      *
-     * @param uploadUrl   上传URL
+     * @param uploadUrl   上传 URL
      * @param inputStream 文件输入流
      * @param fileName    文件名
      * @param headers     上传头信息
@@ -285,9 +285,9 @@ public class KnowledgeUploadListener {
     /**
      * 更新知识库状态
      *
-     * @param knowledgeBaseId 知识库ID
-     * @param aliyunFileId    阿里云文件ID
-     * @param jobId           索引任务ID
+     * @param knowledgeBaseId 知识库 ID
+     * @param aliyunFileId    阿里云文件 ID
+     * @param jobId           索引任务 ID
      * @param status          状态
      * @param errorMessage    错误信息
      */
@@ -321,9 +321,9 @@ public class KnowledgeUploadListener {
      * 包含5分钟超时机制，避免长时间阻塞。
      * </p>
      *
-     * @param knowledgeBaseId   知识库ID
-     * @param knowledgeIndexId  知识库索引ID
-     * @param jobId             索引任务ID
+     * @param knowledgeBaseId   知识库 ID
+     * @param knowledgeIndexId  知识库索引 ID
+     * @param jobId             索引任务 ID
      */
     private void pollIndexJobStatus(Long knowledgeBaseId, String knowledgeIndexId, String jobId) {
         log.info("开始轮询索引任务状态 - JobId: {}, IndexId: {}", jobId, knowledgeIndexId);
@@ -366,7 +366,7 @@ public class KnowledgeUploadListener {
                 if ("COMPLETED".equalsIgnoreCase(status) || "FINISH".equalsIgnoreCase(status)) {
                     log.info("索引任务成功完成 - JobId: {}", jobId);
 
-                    // 更新数据库状态为COMPLETED
+                    // 更新数据库状态为 COMPLETED
                     var knowledgeBase = repository.findById(knowledgeBaseId).orElse(null);
                     if (knowledgeBase != null) {
                         knowledgeBase.setStatus(FileStatusEnum.COMPLETED.getCode());

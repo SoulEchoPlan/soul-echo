@@ -24,12 +24,12 @@ public class ChatResponseDTO {
     private boolean success;
 
     /**
-     * AI回复内容
+     * AI 回复内容
      */
     private String reply;
 
     /**
-     * 会话ID
+     * 会话 ID
      */
     private String sessionId;
 

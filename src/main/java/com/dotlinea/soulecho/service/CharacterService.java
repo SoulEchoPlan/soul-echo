@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * 角色服务接口
  * <p>
- * 定义角色相关的CRUD操作
+ * 定义角色相关的 CRUD 操作
  * </p>
  *
  * @author fanfan187
@@ -24,28 +24,28 @@ public interface CharacterService {
 
     /**
      * 查询所有角色
-     * @return 角色响应DTO列表
+     * @return 角色响应 DTO 列表
      */
     List<CharacterResponseDTO> findAll();
 
     /**
-     * 根据ID查找角色
-     * @param id 角色ID
-     * @return 角色响应DTO
+     * 根据 ID 查找角色
+     * @param id 角色 ID
+     * @return 角色响应 DTO
      */
     CharacterResponseDTO findCharacterById(Long id);
 
     /**
      * 创建角色
-     * @param requestDTO 角色请求DTO
-     * @return 创建后的角色响应DTO
+     * @param requestDTO 角色请求 DTO
+     * @return 创建后的角色响应 DTO
      */
     CharacterResponseDTO createCharacter(CharacterRequestDTO requestDTO);
 
     /**
-     * 根据ID删除角色
+     * 根据 ID 删除角色
      *
-     * @param id 角色ID
+     * @param id 角色 ID
      * @throws ResourceNotFoundException 如果角色不存在
      */
     void deleteById(Long id);
@@ -61,22 +61,22 @@ public interface CharacterService {
 
     /**
      * 查询所有公开角色
-     * @return 公开角色响应DTO列表
+     * @return 公开角色响应 DTO 列表
      */
     List<CharacterResponseDTO> findAllPublic();
 
     /**
      * 更新角色信息
-     * @param id 角色ID
-     * @param requestDTO 角色请求DTO
-     * @return 更新后的角色响应DTO
+     * @param id 角色 ID
+     * @param requestDTO 角色请求 DTO
+     * @return 更新后的角色响应 DTO
      */
     CharacterResponseDTO updateCharacter(Long id, CharacterRequestDTO requestDTO);
 
     /**
      * 处理聊天请求
-     * @param request 聊天请求DTO
-     * @return 聊天响应DTO
+     * @param request 聊天请求 DTO
+     * @return 聊天响应 DTO
      */
     ChatResponseDTO chat(ChatRequestDTO request);
 }

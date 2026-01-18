@@ -12,7 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * <li>支持RESTful API的AI角色管理</li>
  * <li>基于WebSocket的实时语音/文本对话</li>
  * <li>集成ASR、LLM、TTS等AI能力</li>
- * <li>MySQL数据库存储角色信息</li>
+ * <li>MySQL 数据库存储角色信息</li>
  * </ul>
  * </p>
  *
