@@ -125,7 +125,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
         logger.debug("接收到会话 {} 的文本消息: {}", sessionId, textPayload);
 
         try {
-            // === 应用层心跳检测 ===
+            // === 步骤1: 应用层心跳检测 ===
             // 尝试解析为 JSON，判断是否为 ping 消息
             try {
                 com.fasterxml.jackson.databind.JsonNode jsonNode = objectMapper.readTree(textPayload);
@@ -154,9 +154,29 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
                 } catch (Exception e) {
                     logger.error("向会话 {} 发送文本块失败", sessionId, e);
                 }
-            });
 
-            logger.debug("会话 {} 文本流式处理完成", sessionId);
+                logger.debug("会话 {} 解析 JSON 消息成功，content: {}, ttsEnabled: {}", sessionId, userInput, ttsEnabled);
+            } catch (Exception e) {
+                // JSON 解析失败，回退到纯文本模式
+                userInput = textPayload;
+                ttsEnabled = false; // 纯文本模式默认不启用 TTS
+                logger.debug("会话 {} JSON 解析失败，回退到纯文本模式", sessionId);
+            }
+
+            // === 步骤3: 参数校验 ===
+            if (userInput == null || userInput.trim().isEmpty()) {
+                logger.warn("会话 {} 用户消息为空，忽略处理", sessionId);
+                return;
+            }
+
+            // === 步骤4: 流式处理文本消息（支持可选 TTS） ===
+            String personaPrompt = (String) session.getAttributes().get(SessionAttributeKeys.PERSONA_PROMPT);
+            String characterName = (String) session.getAttributes().get(SessionAttributeKeys.CHARACTER_NAME);
+
+            // 统一调用 handleTextRequest，让 Service 层处理 TTS 逻辑
+            chatService.handleTextRequest(session, userInput, ttsEnabled);
+
+            logger.debug("会话 {} 文本流式处理完成（TTS: {}）", sessionId, ttsEnabled);
 
         } catch (Exception e) {
             logger.error("处理会话 {} 的文本消息时发生异常", sessionId, e);
