@@ -175,10 +175,13 @@ public class KnowledgeUploadListener {
             // === 步骤5: 更新数据库状态为 INDEXING ===
             updateKnowledgeBaseStatus(knowledgeBaseId, aliyunFileId, jobId, FileStatusEnum.INDEXING.getCode(), null);
 
+            // === 步骤5.5: 轮询索引任务状态直到完成 ===
+            pollIndexJobStatus(knowledgeBaseId, knowledgeIndexId, jobId);
+
             // === 步骤6: 清理本地临时文件 ===
             cleanupLocalFile(localFilePath);
 
-            log.info("知识库上传处理完成 - ID: {}, Status: INDEXING", knowledgeBaseId);
+            log.info("知识库上传处理完成 - ID: {}", knowledgeBaseId);
 
         } catch (Exception e) {
             log.error("知识库上传处理失败 - ID: {}", knowledgeBaseId, e);
@@ -309,6 +312,108 @@ public class KnowledgeUploadListener {
         } catch (Exception e) {
             log.error("更新知识库状态失败 - ID: {}", knowledgeBaseId, e);
         }
+    }
+
+    /**
+     * 轮询索引任务状态直到完成
+     * <p>
+     * 主动查询阿里云索引任务状态，并根据最终状态更新数据库记录。
+     * 包含5分钟超时机制，避免长时间阻塞。
+     * </p>
+     *
+     * @param knowledgeBaseId   知识库ID
+     * @param knowledgeIndexId  知识库索引ID
+     * @param jobId             索引任务ID
+     */
+    private void pollIndexJobStatus(Long knowledgeBaseId, String knowledgeIndexId, String jobId) {
+        log.info("开始轮询索引任务状态 - JobId: {}, IndexId: {}", jobId, knowledgeIndexId);
+
+        // 5分钟超时
+        final long TIMEOUT_MS = 5 * 60 * 1000L;
+        // 2秒轮询间隔
+        final long POLL_INTERVAL_MS = 2000L;    
+        long startTime = System.currentTimeMillis();
+
+        while (true) {
+            // 检查超时
+            if (System.currentTimeMillis() - startTime > TIMEOUT_MS) {
+                log.warn("索引任务轮询超时 - JobId: {}, 超时时间: {}分钟", jobId, TIMEOUT_MS / 60000);
+                updateKnowledgeBaseStatus(knowledgeBaseId, null, null,
+                        FileStatusEnum.FAILED.getCode(), "索引任务超时（5分钟）");
+                break;
+            }
+
+            try {
+                // 查询索引任务状态
+                var statusRequest = new GetIndexJobStatusRequest()
+                        .setIndexId(knowledgeIndexId)
+                        .setJobId(jobId);
+
+                GetIndexJobStatusResponse statusResponse = bailianClient.getIndexJobStatusWithOptions(
+                        workspaceId, statusRequest, new HashMap<>(), new RuntimeOptions());
+
+                if (statusResponse == null || statusResponse.getBody() == null ||
+                        statusResponse.getBody().getData() == null) {
+                    log.warn("查询索引任务状态返回空结果 - JobId: {}", jobId);
+                    Thread.sleep(POLL_INTERVAL_MS);
+                    continue;
+                }
+
+                var status = statusResponse.getBody().getData().getStatus();
+                log.debug("索引任务状态 - JobId: {}, Status: {}", jobId, status);
+
+                // 情况A: 成功完成
+                if ("COMPLETED".equalsIgnoreCase(status) || "FINISH".equalsIgnoreCase(status)) {
+                    log.info("索引任务成功完成 - JobId: {}", jobId);
+
+                    // 更新数据库状态为COMPLETED
+                    var knowledgeBase = repository.findById(knowledgeBaseId).orElse(null);
+                    if (knowledgeBase != null) {
+                        knowledgeBase.setStatus(FileStatusEnum.COMPLETED.getCode());
+                        knowledgeBase.setErrorMessage(null);
+                        repository.save(knowledgeBase);
+                        log.info("知识库索引完成并更新状态 - ID: {}, IndexId: {}", knowledgeBaseId, knowledgeIndexId);
+                    }
+                    break;
+                }
+
+                // 情况B: 失败
+                if ("FAILED".equalsIgnoreCase(status) || "INSERT_ERROR".equalsIgnoreCase(status)) {
+                    log.error("索引任务失败 - JobId: {}, Status: {}", jobId, status);
+
+                    // 获取错误信息
+                    var errorMsg = "索引任务失败，状态: " + status;
+                    var message = statusResponse.getBody().getMessage();
+                    if (message != null && !message.trim().isEmpty()) {
+                        errorMsg = message;
+                    }
+
+                    updateKnowledgeBaseStatus(knowledgeBaseId, null, null,
+                            FileStatusEnum.FAILED.getCode(), errorMsg);
+                    break;
+                }
+
+                // 情况C: 进行中 (RUNNING, PENDING等)
+                log.debug("索引任务进行中 - JobId: {}, Status: {}", jobId, status);
+                Thread.sleep(POLL_INTERVAL_MS);
+
+            } catch (InterruptedException e) {
+                log.warn("索引任务轮询被中断 - JobId: {}", jobId, e);
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                log.error("查询索引任务状态异常 - JobId: {}", jobId, e);
+                // 网络波动时继续轮询，不立即退出
+                try {
+                    Thread.sleep(POLL_INTERVAL_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        log.info("索引任务状态轮询结束 - JobId: {}", jobId);
     }
 
     /**

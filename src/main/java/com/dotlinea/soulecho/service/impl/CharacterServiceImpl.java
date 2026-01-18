@@ -101,8 +101,14 @@ public class CharacterServiceImpl implements CharacterService {
      */
     private String createKnowledgeIndex(String characterName) {
         try {
+            // 生成8位随机UUID后缀，确保索引名全局唯一
+            String uniqueSuffix = UUID.randomUUID().toString().substring(0, 8);
+            String uniqueIndexName = characterName + "-知识库-" + uniqueSuffix;
+
+            logger.info("正在创建知识库索引，名称: {}", uniqueIndexName);
+
             CreateIndexRequest request = new CreateIndexRequest()
-                    .setName(characterName + "-知识库")
+                    .setName(uniqueIndexName)
                     .setStructureType("unstructured")
                     .setDescription("角色 " + characterName + " 的专属知识库")
                     .setSinkType("BUILT_IN");
@@ -116,7 +122,7 @@ public class CharacterServiceImpl implements CharacterService {
 
             if (response != null && response.getBody() != null && response.getBody().getData() != null) {
                 String indexId = response.getBody().getData().getId();
-                logger.info("知识库索引创建成功: {}", indexId);
+                logger.info("知识库索引创建成功: {}, ID: {}", uniqueIndexName, indexId);
                 return indexId;
             } else {
                 throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED, "创建知识库索引失败：未返回索引ID");

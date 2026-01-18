@@ -1,10 +1,12 @@
 package com.dotlinea.soulecho.controller;
 
+import com.dotlinea.soulecho.dto.CharacterResponseDTO;
 import com.dotlinea.soulecho.constants.MessageTypeConstants;
 import com.dotlinea.soulecho.constants.PersonaPromptConstants;
 import com.dotlinea.soulecho.constants.SessionAttributeKeys;
 import com.dotlinea.soulecho.dto.WebSocketMessageDTO;
 import com.dotlinea.soulecho.factory.WebSocketMessageFactory;
+import com.dotlinea.soulecho.service.CharacterService;
 import com.dotlinea.soulecho.service.RealtimeChatService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
@@ -38,6 +40,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketHandler.class);
 
     private final RealtimeChatService chatService;
+    private final CharacterService characterService;
     private final ObjectMapper objectMapper;
     private final WebSocketMessageFactory messageFactory;
 
@@ -58,10 +61,22 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
             String characterId = extractParameter(query, SessionAttributeKeys.CHARACTER_ID);
             String personaPrompt = extractParameter(query, SessionAttributeKeys.PERSONA_PROMPT);
 
-            // 将角色信息存储到会话属性中
+            // 将角色 ID 存储到会话属性中
             if (characterId != null) {
                 session.getAttributes().put(SessionAttributeKeys.CHARACTER_ID, characterId);
+
+                // 根据 characterId 查询角色信息，获取角色名称
+                try {
+                    CharacterResponseDTO character = characterService.findCharacterById(Long.valueOf(characterId));
+                    String characterName = character.name();
+                    session.getAttributes().put(SessionAttributeKeys.CHARACTER_NAME, characterName);
+                    logger.info("会话 {} 设置角色名称: {}", session.getId(), characterName);
+                } catch (Exception e) {
+                    logger.error("查询角色信息失败，characterId: {}", characterId, e);
+                }
             }
+
+            // 将角色提示词存储到会话属性中
             if (personaPrompt != null) {
                 session.getAttributes().put(SessionAttributeKeys.PERSONA_PROMPT, personaPrompt);
                 logger.debug("会话 {} 设置角色提示词: {}", session.getId(), personaPrompt);
@@ -127,9 +142,10 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
             // 流式处理文本消息
             String personaPrompt = (String) session.getAttributes().get(SessionAttributeKeys.PERSONA_PROMPT);
+            String characterName = (String) session.getAttributes().get(SessionAttributeKeys.CHARACTER_NAME);
 
-            // 调用流式方法，每收到文本块就立即发送给前端
-            chatService.processTextChatStream(personaPrompt, textPayload, sessionId, chunk -> {
+            // 调用流式方法（使用带 characterName 参数的重载方法，支持知识库检索）
+            chatService.processTextChatStream(personaPrompt, textPayload, sessionId, characterName, chunk -> {
                 try {
                     if (session.isOpen()) {
                         session.sendMessage(new TextMessage(chunk));

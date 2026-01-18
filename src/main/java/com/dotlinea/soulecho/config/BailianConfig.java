@@ -26,10 +26,10 @@ public class BailianConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(BailianConfig.class);
 
-    @Value("${aliyun.accessKeyId}")
+    @Value("${bailian.accessKeyId}")
     private String accessKeyId;
 
-    @Value("${aliyun.accessKeySecret}")
+    @Value("${bailian.accessKeySecret}")
     private String accessKeySecret;
 
     @Value("${bailian.workspace.id}")
@@ -42,10 +42,9 @@ public class BailianConfig {
      * 创建阿里云百炼 Client Bean
      *
      * @return 百炼 Client 实例
-     * @throws Exception 初始化失败时抛出异常
      */
     @Bean
-    public Client bailianClient() throws Exception {
+    public Client bailianClient() {
         try {
             logger.info("初始化阿里云百炼 Client...");
 
