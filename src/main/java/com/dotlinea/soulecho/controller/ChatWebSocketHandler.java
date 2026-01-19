@@ -88,6 +88,10 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
             session.getAttributes().put(SessionAttributeKeys.PERSONA_PROMPT, PersonaPromptConstants.DEFAULT_PERSONA);
         }
 
+        // 初始化TTS状态（默认关闭）
+        session.getAttributes().put(SessionAttributeKeys.TTS_ENABLED, false);
+        logger.info("[{}] WebSocket连接建立，TTS状态已初始化为关闭", session.getId());
+
         logger.info("会话 {} 初始化完成", session.getId());
     }
 
@@ -143,6 +147,7 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
             // === 步骤2: 解析用户消息内容（支持 JSON 和纯文本） ===
             String userInput = null;
             boolean ttsEnabled = false; // 默认不启用 TTS
+            boolean hasTtsField = false; // 新增：标记是否包含TTS字段
 
             try {
                 // 尝试解析为 JSON：{"message": "用户消息", "ttsEnabled": true}
@@ -157,10 +162,11 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
 
                 // 提取 ttsEnabled 字段（可选）
                 if (jsonNode.has("ttsEnabled")) {
+                    hasTtsField = true;
                     ttsEnabled = jsonNode.get("ttsEnabled").asBoolean();
                     // 新增：保存 TTS 状态到 Session，供语音输入流程使用
                     session.getAttributes().put(SessionAttributeKeys.TTS_ENABLED, ttsEnabled);
-                    logger.debug("会话 {} 保存 TTS 状态到 Session: {}", sessionId, ttsEnabled);
+                    logger.info("[{}] TTS状态已更新到Session: {}", sessionId, ttsEnabled);
                 }
 
                 logger.debug("会话 {} 解析 JSON 消息成功，content: {}, ttsEnabled: {}", sessionId, userInput, ttsEnabled);
@@ -168,7 +174,16 @@ public class ChatWebSocketHandler extends AbstractWebSocketHandler {
                 // JSON 解析失败，回退到纯文本模式
                 userInput = textPayload;
                 ttsEnabled = false; // 纯文本模式默认不启用 TTS
-                logger.debug("会话 {} JSON 解析失败，回退到纯文本模式", sessionId);
+                // 保存TTS状态到Session
+                session.getAttributes().put(SessionAttributeKeys.TTS_ENABLED, ttsEnabled);
+                logger.debug("会话 {} JSON 解析失败，回退到纯文本模式，TTS状态设置为: {}", sessionId, ttsEnabled);
+            }
+
+            // 处理纯TTS状态更新消息（无文本内容）
+            if (hasTtsField && (userInput == null || userInput.trim().isEmpty())) {
+                session.getAttributes().put(SessionAttributeKeys.TTS_ENABLED, ttsEnabled);
+                logger.info("[{}] 收到纯TTS状态更新消息，已更新Session状态(TTS={})", sessionId, ttsEnabled);
+                return;
             }
 
             // === 步骤3: 参数校验 ===

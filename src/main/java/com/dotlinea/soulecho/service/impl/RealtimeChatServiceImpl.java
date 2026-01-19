@@ -62,6 +62,16 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
      */
     private static final long SILENCE_TIMEOUT_MS = 1800;
 
+    /**
+     * 最小有效音频数据大小 (字节)
+     * <p>
+     * 允许所有尺寸的音频包通过，避免误杀正常语音流。
+     * Web Audio API 的 AudioWorklet 处理 128 帧数据（48kHz->16kHz 重采样后），
+     * 单次发送的二进制包大小约为 84 字节，不应通过单包大小判断是否为噪音。
+     * </p>
+     */
+    private static final int MIN_AUDIO_CHUNK_SIZE = 0;
+
     private final ASRClient asrClient;
     private final LLMClient llmClient;
     private final TTSClient ttsClient;
@@ -90,8 +100,7 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
     @Override
     public void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
         String sessionId = session.getId();
-        logger.debug("处理会话 {} 的二进制音频消息，数据大小: {} bytes",
-                sessionId, message.getPayloadLength());
+        logger.info("[{}] 收到二进制音频数据，大小: {} bytes", sessionId, message.getPayloadLength());
 
         ByteBuffer audioPayload = cloneAudioBuffer(message.getPayload());
         if (audioPayload == null || !audioPayload.hasRemaining()) {
@@ -99,6 +108,8 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             sendErrorMessage(session, "音频数据无效，请重试");
             return;
         }
+
+        int dataSize = audioPayload.remaining();
 
         // 获取或创建会话的音频缓冲区
         AudioBuffer audioBuffer = audioBuffers.computeIfAbsent(sessionId, k -> new AudioBuffer());
@@ -131,12 +142,14 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         AudioBuffer audioBuffer = audioBuffers.get(sessionId);
 
         if (audioBuffer == null) {
+            logger.info("会话 {} 音频缓冲区为空，可能已被清理", sessionId);
             return;
         }
 
         byte[] audioData;
         synchronized (audioBuffer) {
             if (audioBuffer.size() == 0) {
+                logger.info("会话 {} 音频缓冲区无数据，等待接收", sessionId);
                 return;
             }
 
@@ -170,7 +183,13 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
         // 尝试非阻塞获取分布式锁
         boolean lockAcquired;
         try {
+            logger.info("[{}] 尝试获取分布式锁...", sessionId);
             lockAcquired = sessionLock.tryLock(3000, TimeUnit.MILLISECONDS);
+            if (lockAcquired) {
+                logger.info("[{}] 成功获取分布式锁", sessionId);
+            } else {
+                logger.warn("[{}] 获取分布式锁失败（3秒超时）", sessionId);
+            }
         } catch (InterruptedException e) {
             logger.warn("会话 {} 尝试获取锁时被中断", sessionId);
             Thread.currentThread().interrupt();
@@ -188,12 +207,19 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
             logger.debug("会话 {} 开始异步语音识别", sessionId);
             ByteArrayInputStream audioInputStream = new ByteArrayInputStream(audioData);
 
-            // 调用异步ASR，返回CompletableFuture
-            asrClient.recognizeAsync(audioInputStream)
+            // 关键变更：获取ASR Future后立即释放锁
+            CompletableFuture<String> asrFuture = asrClient.recognizeAsync(audioInputStream);
+
+            // 立即释放锁（在主线程）
+            sessionLock.unlock();
+            logger.info("[{}] 立即释放分布式锁(异步启动前)", sessionId);
+
+            // 异步处理链（无锁状态）
+            asrFuture
                     .thenAccept(recognizedText -> {
                         // ASR 成功回调
                         if (recognizedText == null || recognizedText.trim().isEmpty()) {
-                            logger.debug("会话 {} 语音识别无结果", sessionId);
+                            logger.info("会话 {} ASR返回空结果或null，结束处理", sessionId);
                             return;
                         }
 
@@ -219,8 +245,8 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                         try {
                             // 从 session 读取 TTS 状态，不硬编码
                             Boolean ttsEnabled = (Boolean) session.getAttributes().get(SessionAttributeKeys.TTS_ENABLED);
-                            // 如果未设置，默认开启 TTS（根据用户需求）
-                            boolean actualTtsState = (ttsEnabled != null) ? ttsEnabled : true;
+                            // 修复：默认关闭TTS，符合用户预期
+                            boolean actualTtsState = (ttsEnabled != null) ? ttsEnabled : false;
 
                             logger.debug("会话 {} 从 Session 读取 TTS 状态: {}", sessionId, actualTtsState);
                             streamLlmResponseWithTts(personaPrompt, recognizedText, sessionId, characterName, actualTtsState, session);
@@ -255,24 +281,18 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
 
                         sendErrorMessage(session, userMessage);
                         return null;
-                    })
-                    .whenComplete((result, throwable) -> {
-                        // 确保在任何情况下都释放锁
-                        try {
-                            sessionLock.unlock();
-                            logger.debug("会话 {} 释放分布式锁", sessionId);
-                        } catch (IllegalMonitorStateException e) {
-                            logger.warn("会话 {} 尝试释放未持有的锁（可能已释放）", sessionId);
-                        }
                     });
 
         } catch (Exception e) {
             logger.error("会话 {} 启动异步处理时发生异常", sessionId, e);
             sendErrorMessage(session, "处理您的消息时发生错误，请稍后重试。");
 
-            // 确保异常情况下释放锁
+            // 异常情况下释放锁
             try {
-                sessionLock.unlock();
+                if (sessionLock.isHeldByCurrentThread()) {
+                    sessionLock.unlock();
+                    logger.info("[{}] 异常情况下释放锁", sessionId);
+                }
             } catch (IllegalMonitorStateException ex) {
                 logger.error("会话 {} 异常情况下释放锁失败", sessionId, ex);
             }
@@ -370,8 +390,8 @@ public class RealtimeChatServiceImpl implements RealtimeChatService {
                 }
 
                 // 3. 如果启用 TTS，检测完整句子并触发语音合成
-                // ⚠️ 注意：此方法无 session 参数，因此无法发送音频响应或错误通知
-                //    此处仅展示逻辑框架，实际使用中应通过 WebSocket 调用 streamLlmResponseWithTts
+                // 注意：此方法无 session 参数，因此无法发送音频响应或错误通知
+                // 此处仅展示逻辑框架，实际使用中应通过 WebSocket 调用 streamLlmResponseWithTts
                 if (enableTts && sentenceBuffer != null && pattern != null) {
                     logger.warn("processTextChatStream(Consumer, enableTts=true) 模式下不支持 TTS，" +
                               "请通过 WebSocket 使用 streamLlmResponseWithTts 方法");

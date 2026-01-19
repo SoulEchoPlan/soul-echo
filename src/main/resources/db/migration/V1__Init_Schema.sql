@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS characters (
     -- 知识库关联 (原 V2 补丁内容)
     knowledge_index_id VARCHAR(255) UNIQUE COMMENT '角色的专属知识库索引ID（阿里云百炼）',
 
-    -- 审计字段 (你刚刚加的，导致报错的字段)
-    created_at DATETIME(6) COMMENT '创建时间',
-    updated_at DATETIME(6) COMMENT '更新时间'
+    -- 审计字段 (对应 Entity 类的 gmt_create 和 gmt_modified)
+    gmt_create DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '创建时间',
+    gmt_modified DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '更新时间'
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI角色表';
 
 
@@ -47,12 +47,12 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
     job_id VARCHAR(255) COMMENT '索引任务ID',
     error_message TEXT COMMENT '错误信息',
 
-    -- 审计字段
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    -- 审计字段 (对应 Entity 类的 gmt_create 和 gmt_modified)
+    gmt_create TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    gmt_modified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     -- 索引优化
     INDEX idx_character_id (character_id),
     INDEX idx_status (status),
-    INDEX idx_created_at (created_at)
+    INDEX idx_gmt_create (gmt_create)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库文件表';
