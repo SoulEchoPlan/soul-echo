@@ -133,11 +133,11 @@ public class ASRClientImpl implements ASRClient {
                 // 清理资源
                 if (transcriber != null) {
                     try {
-                        // 等待回调完成（最多2秒）
+                        // 等待回调完成（从2秒增加到5秒）
                         logger.debug("等待ASR回调完成...");
-                        boolean completed = callbackLatch.await(2, java.util.concurrent.TimeUnit.SECONDS);
+                        boolean completed = callbackLatch.await(5, java.util.concurrent.TimeUnit.SECONDS);
                         if (!completed) {
-                            logger.warn("ASR回调等待超时（2秒），强制关闭transcriber");
+                            logger.warn("ASR回调等待超时（5秒），强制关闭transcriber");
                         }
                         transcriber.close();
                     } catch (Exception e) {
