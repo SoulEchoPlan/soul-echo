@@ -38,9 +38,6 @@ public class BailianConfig {
     @Value("${bailian.workspace.id}")
     private String workspaceId;
 
-    @Value("${bailian.knowledge.index.id}")
-    private String indexId;
-
     /**
      * 创建阿里云百炼 Client Bean
      *
