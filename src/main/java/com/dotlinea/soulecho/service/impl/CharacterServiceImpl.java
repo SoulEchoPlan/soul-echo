@@ -79,12 +79,11 @@ public class CharacterServiceImpl implements CharacterService {
         try {
             Character character = convertToEntity(requestDTO);
 
-            // 创建专属知识库索引
-            String knowledgeIndexId = createKnowledgeIndex(character.getName());
-            character.setKnowledgeIndexId(knowledgeIndexId);
+            // 知识库索引采用懒加载模式，不在创建时初始化
+            // 用户首次上传文件或显式开启知识库时才会创建云端索引
 
             Character savedCharacter = characterRepository.save(character);
-            logger.info("角色创建成功，ID: {}, 知识库索引ID: {}", savedCharacter.getId(), knowledgeIndexId);
+            logger.info("角色创建成功，ID: {}", savedCharacter.getId());
 
             return convertToResponseDTO(savedCharacter);
         } catch (Exception e) {
@@ -356,8 +355,8 @@ public class CharacterServiceImpl implements CharacterService {
                 character.getVoiceId(),
                 character.isPublic(),
                 character.getKnowledgeIndexId(),
-                character.getCreatedAt(),
-                character.getUpdatedAt()
+                character.getGmtCreate(),
+                character.getGmtModified()
         );
     }
 }

@@ -50,6 +50,24 @@ public class WebSocketMessageFactory {
     }
 
     /**
+     * 创建带错误码的错误消息
+     *
+     * @param errorMessage 错误消息
+     * @param errorCode    错误码
+     * @param sessionId    会话ID
+     * @return WebSocket消息DTO
+     */
+    public WebSocketMessageDTO createErrorWithCode(String errorMessage, String errorCode, String sessionId) {
+        WebSocketMessageDTO dto = new WebSocketMessageDTO();
+        dto.setType(MessageTypeConstants.ERROR);
+        dto.setCode(errorCode);
+        dto.setContent(errorMessage);
+        dto.setSessionId(sessionId);
+        dto.setTimestamp(System.currentTimeMillis());
+        return dto;
+    }
+
+    /**
      * 创建 AI 回复消息
      *
      * @param replyText 回复文本

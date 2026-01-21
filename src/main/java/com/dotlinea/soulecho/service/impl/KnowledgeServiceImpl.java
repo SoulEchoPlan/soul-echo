@@ -154,9 +154,73 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Override
     public Map<String, Object> uploadDocument(Long characterId, MultipartFile file) {
         // === 步骤0: 校验角色是否存在 ===
-        if (!characterRepository.existsById(characterId)) {
+        com.dotlinea.soulecho.entity.Character character = characterRepository.findById(characterId).orElse(null);
+        if (character == null) {
             logger.warn("角色不存在 - 角色ID: {}", characterId);
             throw new ResourceNotFoundException("角色不存在: " + characterId);
+        }
+
+        // === 步骤0.5: 隐式初始化知识库（懒加载 + 健康检查） ===
+        // 如果角色的知识库索引不存在，则自动创建；如果存在但已失效，则自动重建
+        String knowledgeIndexId = character.getKnowledgeIndexId();
+
+        if (knowledgeIndexId != null && !knowledgeIndexId.trim().isEmpty()) {
+            // 情况A: 角色已有知识库索引ID，先验证健康度
+            logger.info("检测到角色已有知识库索引，验证健康度 - 角色ID: {}, 索引ID: {}",
+                    characterId, knowledgeIndexId);
+
+            if (!checkIndexHealth(knowledgeIndexId)) {
+                // 索引已失效，需要重建
+                logger.warn("现有索引已失效，准备重建 - 角色ID: {}, 旧索引ID: {}",
+                        characterId, knowledgeIndexId);
+
+                try {
+                    // 创建新索引（包含等待激活）
+                    String newIndexId = createKnowledgeIndex(character.getName());
+
+                    // 更新角色记录
+                    character.setKnowledgeIndexId(newIndexId);
+                    characterRepository.saveAndFlush(character);
+
+                    logger.info("索引重建成功 - 角色ID: {}, 旧索引: {}, 新索引: {}",
+                            characterId, knowledgeIndexId, newIndexId);
+                    knowledgeIndexId = newIndexId;
+
+                } catch (Exception e) {
+                    // 创建失败时，清除旧索引ID，避免后续继续使用失效索引
+                    logger.error("索引重建失败，清除旧索引ID - 角色ID: {}, 临时索引ID: {}",
+                            characterId, character.getKnowledgeIndexId());
+                    character.setKnowledgeIndexId(null);
+                    characterRepository.saveAndFlush(character);
+
+                    throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED,
+                            "知识库索引重建失败: " + e.getMessage(), e);
+                }
+            } else {
+                logger.info("现有索引健康检查通过 - 角色ID: {}, 索引ID: {}",
+                        characterId, knowledgeIndexId);
+            }
+        } else {
+            // 情况B: 索引为空，创建新索引
+            logger.info("检测到角色知识库未初始化，自动创建 - 角色ID: {}, 角色名: {}",
+                    characterId, character.getName());
+            try {
+                knowledgeIndexId = createKnowledgeIndex(character.getName());
+                character.setKnowledgeIndexId(knowledgeIndexId);
+                characterRepository.saveAndFlush(character);
+                logger.info("角色知识库初始化并激活成功 - 角色ID: {}, 索引ID: {}",
+                        characterId, knowledgeIndexId);
+            } catch (Exception e) {
+                if (character.getKnowledgeIndexId() != null) {
+                    logger.warn("索引激活失败，清除已设置的索引ID - 角色ID: {}, 临时索引ID: {}",
+                            characterId, character.getKnowledgeIndexId());
+                    character.setKnowledgeIndexId(null);
+                    characterRepository.saveAndFlush(character);
+                }
+                logger.error("角色知识库自动初始化失败 - 角色ID: {}", characterId, e);
+                throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED,
+                        "知识库初始化失败: " + e.getMessage(), e);
+            }
         }
 
         if (file == null || file.isEmpty()) {
@@ -234,7 +298,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             result.put("fileName", originalFileName);
             result.put("fileSize", fileSize);
             result.put("status", FileStatusEnum.UPLOADING.getCode());
-            result.put("uploadTime", knowledgeBase.getCreatedAt());
+            result.put("uploadTime", knowledgeBase.getGmtCreate());
             result.put("message", "文件上传任务已提交，正在异步处理中");
 
             logger.info("文件上传请求处理完成，异步任务已启动 - ID: {}", knowledgeBase.getId());
@@ -368,7 +432,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         try {
             logger.debug("获取角色 {} 的文档列表", characterId);
 
-            List<KnowledgeBase> knowledgeBases = repository.findByCharacterIdOrderByCreatedAtDesc(characterId);
+            List<KnowledgeBase> knowledgeBases = repository.findByCharacterIdOrderByGmtCreateDesc(characterId);
             List<Map<String, Object>> documents = new ArrayList<>();
 
             for (KnowledgeBase kb : knowledgeBases) {
@@ -396,7 +460,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     status = FileStatusEnum.ACTIVE.getCode();
                 }
                 doc.put("status", status);
-                doc.put("uploadTime", kb.getCreatedAt());
+                doc.put("uploadTime", kb.getGmtCreate());
                 documents.add(doc);
             }
 
@@ -431,6 +495,128 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * 检查索引健康状态
+     * <p>
+     * 通过调用百炼检索API测试索引是否可用，采用严格策略：
+     * 1. 响应完整（Body不为空）→ 索引健康，返回 true
+     * 2. TeaException且错误码包含Invalid/NotFound/404/IndexNotActive/IndexNotReady → 索引失效，返回 false
+     * 3. 其他异常（网络问题等）→ 保守策略，返回 true
+     * </p>
+     *
+     * @param indexId 知识库索引 ID
+     * @return 索引是否健康（true=健康，false=失效）
+     */
+    private boolean checkIndexHealth(String indexId) {
+        try {
+            logger.debug("检查索引健康度 - IndexId: {}", indexId);
+
+            // 使用检索API测试索引是否可用
+            RetrieveRequest testRequest = new RetrieveRequest()
+                    .setIndexId(indexId)
+                    .setQuery("test")
+                    .setDenseSimilarityTopK(1);
+
+            RetrieveResponse testResponse = bailianClient.retrieveWithOptions(
+                    workspaceId, testRequest, new HashMap<>(), new RuntimeOptions());
+
+            // 只要响应结构完整，就认为索引可用
+            boolean isHealthy = testResponse != null && testResponse.getBody() != null;
+
+            if (isHealthy) {
+                logger.debug("索引健康检查通过 - IndexId: {}", indexId);
+            } else {
+                logger.warn("索引健康检查失败 - IndexId: {}", indexId);
+            }
+
+            return isHealthy;
+
+        } catch (com.aliyun.tea.TeaException e) {
+            // 检查错误码，判断索引是否失效
+            String errorCode = e.getCode();
+            if (errorCode != null && (errorCode.contains("Invalid") ||
+                    errorCode.contains("NotFound") ||
+                    errorCode.contains("404") ||
+                    errorCode.contains("IndexNotActive") ||
+                    errorCode.contains("IndexNotReady"))) {
+                logger.warn("索引不存在或未激活 - IndexId: {}, ErrorCode: {}",
+                        indexId, errorCode);
+                return false;
+            }
+
+            // 其他异常（如网络问题）记录日志但不认为索引不健康
+            logger.warn("索引健康检查异常 - IndexId: {}, 可能是网络问题: {}",
+                    indexId, e.getMessage());
+            return true;  // 保守策略
+
+        } catch (Exception e) {
+            logger.warn("索引健康检查未知异常 - IndexId: {}, 错误: {}",
+                    indexId, e.getMessage());
+            return true;  // 保守策略
+        }
+    }
+
+    /**
+     * 创建角色的专属知识库索引
+     * <p>
+     * 完整流程：创建索引 → 激活索引 → 返回索引ID
+     * </p>
+     *
+     * @param characterName 角色名称
+     * @return 知识库索引 ID
+     */
+    private String createKnowledgeIndex(String characterName) {
+        try {
+            // 生成8位随机UUID后缀，确保索引名全局唯一
+            String uniqueSuffix = UUID.randomUUID().toString().substring(0, 8);
+            String uniqueIndexName = characterName + "-知识库-" + uniqueSuffix;
+
+            logger.info("正在创建知识库索引，名称: {}", uniqueIndexName);
+
+            // === 步骤1: 创建索引 ===
+            CreateIndexRequest request = new CreateIndexRequest()
+                    .setName(uniqueIndexName)
+                    .setStructureType("unstructured")
+                    .setDescription("角色 " + characterName + " 的专属知识库")
+                    .setSinkType("BUILT_IN");
+
+            CreateIndexResponse response = bailianClient.createIndexWithOptions(
+                    workspaceId,
+                    request,
+                    new HashMap<>(),
+                    new RuntimeOptions()
+            );
+
+            if (response == null || response.getBody() == null || response.getBody().getData() == null) {
+                throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED, "创建知识库索引失败：未返回索引ID");
+            }
+
+            String indexId = response.getBody().getData().getId();
+            logger.info("知识库索引创建成功: {}, ID: {}", uniqueIndexName, indexId);
+
+            // === 步骤2: 立即激活索引 ===
+            SubmitIndexJobRequest submitRequest = new SubmitIndexJobRequest()
+                    .setIndexId(indexId);
+
+            bailianClient.submitIndexJobWithOptions(
+                    workspaceId,
+                    submitRequest,
+                    new HashMap<>(),
+                    new RuntimeOptions()
+            );
+
+            logger.info("索引激活任务已提交，索引ID: {}", indexId);
+
+            return indexId;
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            logger.error("调用阿里云百炼 API 创建知识库索引失败", e);
+            throw new BusinessException(ErrorCode.CHARACTER_CREATE_FAILED, "创建知识库索引失败: " + e.getMessage(), e);
+        }
     }
 
     /**

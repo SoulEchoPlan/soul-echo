@@ -15,6 +15,6 @@ public record CharacterResponseDTO(
     String voiceId,
     boolean isPublic,
     String knowledgeIndexId,
-    LocalDateTime createdAt,
-    LocalDateTime updatedAt
+    LocalDateTime gmtCreate,
+    LocalDateTime gmtModified
 ) {}

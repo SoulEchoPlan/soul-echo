@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -83,18 +84,20 @@ public class KnowledgeUploadListener {
         var fileSize = event.getFileSize();
 
         try {
-            // 获取角色的专属知识库索引 ID
+            // 从数据库查询角色的知识库索引 ID
+            // 注意：uploadDocument() 方法中已经进行了索引健康检查和自动重建
+            // 这里直接使用数据库中的最新索引ID即可
+            log.info("从数据库查询角色知识库索引ID - 角色ID: {}", characterId);
             var character = characterRepository.findById(characterId).orElse(null);
             if (character == null) {
                 throw new RuntimeException("角色不存在，ID: " + characterId);
             }
 
-            var knowledgeIndexId = character.getKnowledgeIndexId();
+            String knowledgeIndexId = character.getKnowledgeIndexId();
             if (knowledgeIndexId == null || knowledgeIndexId.trim().isEmpty()) {
                 throw new RuntimeException("角色知识库索引ID为空，角色ID: " + characterId);
             }
-
-            log.info("使用角色专属知识库索引 - 角色ID: {}, 索引ID: {}", characterId, knowledgeIndexId);
+            log.info("从数据库查询到知识库索引ID - IndexId: {}", knowledgeIndexId);
 
             // === 步骤1: 申请文件上传租约 ===
             log.debug("步骤1: 申请文件上传租约 - {}", originalFileName);
@@ -186,8 +189,25 @@ public class KnowledgeUploadListener {
         } catch (Exception e) {
             log.error("知识库上传处理失败 - ID: {}", knowledgeBaseId, e);
 
-            // 更新数据库状态为 FAILED,并记录错误信息
-            updateKnowledgeBaseStatus(knowledgeBaseId, null, null, FileStatusEnum.FAILED.getCode(), e.getMessage());
+            // 构建详细的错误信息（包含完整的堆栈跟踪，截取前500字符）
+            var errorDetail = new StringBuilder();
+            errorDetail.append("错误类型: ").append(e.getClass().getName()).append("\n");
+            errorDetail.append("错误消息: ").append(e.getMessage()).append("\n");
+
+            // 获取堆栈跟踪并截取前500字符
+            var stackTrace = Arrays.stream(e.getStackTrace())
+                    .map(StackTraceElement::toString)
+                    .reduce((a, b) -> a + "\n    at " + b)
+                    .orElse("");
+
+            // 限制错误信息总长度为500字符
+            var fullError = errorDetail + "堆栈跟踪:\n    at " + stackTrace;
+            var truncatedError = fullError.length() > 500
+                    ? fullError.substring(0, 500) + "...(truncated)"
+                    : fullError;
+
+            // 更新数据库状态为 FAILED,并记录详细的错误信息
+            updateKnowledgeBaseStatus(knowledgeBaseId, null, null, FileStatusEnum.FAILED.getCode(), truncatedError);
 
             // 清理本地临时文件
             cleanupLocalFile(localFilePath);
