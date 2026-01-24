@@ -91,12 +91,15 @@ public class ASRClientImpl implements ASRClient {
         // 添加CountDownLatch用于等待回调完成
         var callbackLatch = new java.util.concurrent.CountDownLatch(1);
 
+        // 添加启动信号，等待服务端连接建立
+        var startLatch = new java.util.concurrent.CountDownLatch(1);
+
         // 在独立线程中执行音频发送逻辑，避免阻塞调用线程
         CompletableFuture.runAsync(() -> {
             SpeechTranscriber transcriber = null;
             try {
                 // 创建实时语音识别对象
-                transcriber = new SpeechTranscriber(nlsClient, getTranscriberListener(resultFuture, fullText, callbackLatch));
+                transcriber = new SpeechTranscriber(nlsClient, getTranscriberListener(resultFuture, fullText, callbackLatch, startLatch));
 
                 // 设置识别参数
                 transcriber.setAppKey(appKey);
@@ -108,6 +111,13 @@ public class ASRClientImpl implements ASRClient {
 
                 // 启动识别会话
                 transcriber.start();
+
+                // 等待服务端连接建立（最多等待 10 秒）
+                boolean started = startLatch.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                if (!started) {
+                    throw new RuntimeException("ASR 服务端握手超时");
+                }
+                logger.info("ASR 服务端连接已建立，开始发送音频数据");
 
                 // 从输入流循环读取音频数据并发送
                 byte[] buffer = new byte[CHUNK_SIZE];
@@ -166,16 +176,20 @@ public class ASRClientImpl implements ASRClient {
      * @param resultFuture 用于传递识别结果的 Future
      * @param fullText 用于累积完整文本的 StringBuilder
      * @param callbackLatch 用于通知回调完成的 CountDownLatch
+     * @param startLatch 用于通知服务端连接已建立的 CountDownLatch
      * @return 识别监听器
      */
     private SpeechTranscriberListener getTranscriberListener(
             CompletableFuture<String> resultFuture,
             StringBuilder fullText,
-            java.util.concurrent.CountDownLatch callbackLatch) {
+            java.util.concurrent.CountDownLatch callbackLatch,
+            java.util.concurrent.CountDownLatch startLatch) {
         return new SpeechTranscriberListener() {
             @Override
             public void onTranscriberStart(SpeechTranscriberResponse response) {
                 logger.info("ASR onTranscriberStart - TaskId: {}", response.getTaskId());
+                // 通知主线程：服务端连接已建立
+                startLatch.countDown();
             }
 
             @Override
@@ -235,6 +249,8 @@ public class ASRClientImpl implements ASRClient {
                 resultFuture.completeExceptionally(asrException);
                 // 通知回调完成（即使失败也要释放锁）
                 callbackLatch.countDown();
+                // 释放启动锁（防止连接失败时主线程死锁）
+                startLatch.countDown();
             }
         };
     }
